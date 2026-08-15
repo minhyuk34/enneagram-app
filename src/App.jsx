@@ -481,7 +481,7 @@ function ResultScreen({
           기록이 자동으로 삭제됩니다.
         </p>
 
-        <EnneagramGuide />
+        <EnneagramGuide highlightType={result.type} />
       </div>
 
       <div className="result-actions no-print">

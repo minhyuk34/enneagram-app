@@ -14,10 +14,9 @@
   --border-strong: rgba(23, 19, 16, 0.48);
   --code-bg: #ece3d8;
   --shadow: 0 28px 70px rgba(55, 35, 27, 0.12);
-  --sans: "Pretendard", "Apple SD Gothic Neo", -apple-system, BlinkMacSystemFont,
-    "Segoe UI", sans-serif;
-  --serif: "Iowan Old Style", "AppleMyungjo", "Noto Serif KR", Baskerville,
-    Georgia, serif;
+  --sans: "Pretendard Variable", "Pretendard", -apple-system, BlinkMacSystemFont,
+    "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", "Segoe UI", sans-serif;
+  --serif: var(--sans);
 
   font-family: var(--sans);
   color: var(--text);

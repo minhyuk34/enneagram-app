@@ -11,6 +11,19 @@ import "./EnneagramGuide.css";
 
 const TYPES = [1, 2, 3, 4, 5, 6, 7, 8, 9];
 
+function GuideTableWrap({ label, children }) {
+  return (
+    <div className="guide-table-region">
+      <p className="guide-table-scroll-hint" aria-hidden="true">
+        ← 표를 옆으로 밀어 전체 내용 보기 →
+      </p>
+      <div className="guide-table-wrap" role="region" aria-label={label} tabIndex={0}>
+        {children}
+      </div>
+    </div>
+  );
+}
+
 function IntegrationDisintegrationSection({ highlightType }) {
   return (
     <section className="guide-section">
@@ -20,7 +33,7 @@ function IntegrationDisintegrationSection({ highlightType }) {
           {p}
         </p>
       ))}
-      <div className="guide-table-wrap">
+      <GuideTableWrap label="유형별 분열과 통합 표">
         <table className="guide-table">
           <thead>
             <tr>
@@ -60,12 +73,12 @@ function IntegrationDisintegrationSection({ highlightType }) {
             })}
           </tbody>
         </table>
-      </div>
+      </GuideTableWrap>
     </section>
   );
 }
 
-function CentersSection() {
+function CentersSection({ highlightType }) {
   const rows = [
     ["설명", "desc"],
     ["감정", "emotion"],
@@ -76,16 +89,26 @@ function CentersSection() {
     ["신체발달", "bodyDevelopment"],
     ["지능", "intelligence"],
   ];
+  const selectedCenter = CENTER_DETAILS.find((center) =>
+    center.types.includes(Number(highlightType))
+  )?.key;
+
   return (
     <section className="guide-section">
       <h3 className="guide-heading">2. 에니어그램 힘의 중심</h3>
-      <div className="guide-table-wrap">
+      <GuideTableWrap label="에니어그램 힘의 중심 표">
         <table className="guide-table">
           <thead>
             <tr>
               <th>구분</th>
               {CENTER_DETAILS.map((c) => (
-                <th key={c.key}>
+                <th
+                  key={c.key}
+                  className={c.key === selectedCenter ? "is-highlighted-center" : undefined}
+                >
+                  {c.key === selectedCenter && (
+                    <span className="guide-center-badge">나의 중심</span>
+                  )}
                   {c.key} ({c.types.join(", ")}유형)
                 </th>
               ))}
@@ -96,13 +119,18 @@ function CentersSection() {
               <tr key={key}>
                 <td className="guide-table-typecell">{label}</td>
                 {CENTER_DETAILS.map((c) => (
-                  <td key={c.key}>{c[key]}</td>
+                  <td
+                    key={c.key}
+                    className={c.key === selectedCenter ? "is-highlighted-center" : undefined}
+                  >
+                    {c[key]}
+                  </td>
                 ))}
               </tr>
             ))}
           </tbody>
         </table>
-      </div>
+      </GuideTableWrap>
     </section>
   );
 }
@@ -137,7 +165,7 @@ function StrengthsWeaknessesSection({ highlightType }) {
   return (
     <section className="guide-section">
       <h3 className="guide-heading">4. 에니어그램 성격유형별 강점과 약점</h3>
-      <div className="guide-table-wrap">
+      <GuideTableWrap label="성격유형별 강점과 약점 표">
         <table className="guide-table">
           <thead>
             <tr>
@@ -163,7 +191,7 @@ function StrengthsWeaknessesSection({ highlightType }) {
             })}
           </tbody>
         </table>
-      </div>
+      </GuideTableWrap>
     </section>
   );
 }
@@ -177,7 +205,7 @@ function WingsSection({ highlightType }) {
           {p}
         </p>
       ))}
-      <div className="guide-table-wrap">
+      <GuideTableWrap label="에니어그램 날개 표">
         <table className="guide-table">
           <thead>
             <tr>
@@ -210,7 +238,7 @@ function WingsSection({ highlightType }) {
             )}
           </tbody>
         </table>
-      </div>
+      </GuideTableWrap>
     </section>
   );
 }
@@ -221,7 +249,7 @@ export default function EnneagramGuide({ highlightType }) {
       <summary className="guide-summary">에니어그램 상세 가이드 (KEPTI)</summary>
       <div className="guide-body">
         <IntegrationDisintegrationSection highlightType={highlightType} />
-        <CentersSection />
+        <CentersSection highlightType={highlightType} />
         <TypeDescriptionsSection highlightType={highlightType} />
         <StrengthsWeaknessesSection highlightType={highlightType} />
         <WingsSection highlightType={highlightType} />

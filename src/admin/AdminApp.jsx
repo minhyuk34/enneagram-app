@@ -440,14 +440,14 @@ function AdminDashboard({ token, dashboard, onRefresh, onLogout }) {
               <tbody>
                 {filteredRecords.map((record, index) => (
                   <tr key={record.recordId || `${record.email}-${record.timestamp}`}>
-                    <td>{String(filteredRecords.length - index).padStart(3, "0")}</td>
-                    <td>{formatDate(record.timestamp)}</td>
-                    <td><strong>{record.name}</strong><small>{record.email}</small></td>
-                    <td>{getGroupName(record, groups)}</td>
-                    <td><b>{record.type}번</b> · {record.typeName}</td>
-                    <td>{record.center}</td>
-                    <td>{record.wingLabel}</td>
-                    <td><button type="button" onClick={() => setSelectedRecord(record)}>상세 보기</button></td>
+                    <td data-label="번호">{String(filteredRecords.length - index).padStart(3, "0")}</td>
+                    <td data-label="검사일">{formatDate(record.timestamp)}</td>
+                    <td data-label="이름"><strong>{record.name}</strong><small>{record.email}</small></td>
+                    <td data-label="집단">{getGroupName(record, groups)}</td>
+                    <td data-label="최종 결과"><b>{record.type}번</b> · {record.typeName}</td>
+                    <td data-label="힘의 중심">{record.center}</td>
+                    <td data-label="날개">{record.wingLabel}</td>
+                    <td data-label="상세"><button type="button" onClick={() => setSelectedRecord(record)}>상세 보기</button></td>
                   </tr>
                 ))}
                 {filteredRecords.length === 0 && (

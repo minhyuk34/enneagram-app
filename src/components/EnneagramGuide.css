@@ -45,9 +45,31 @@
   line-height: 1.85;
 }
 
+.guide-table-region,
 .guide-table-wrap {
   width: 100%;
+}
+
+.guide-table-wrap {
   overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-color: rgba(143, 31, 38, 0.45) transparent;
+  -webkit-overflow-scrolling: touch;
+}
+
+.guide-table-wrap:focus-visible {
+  outline: 2px solid var(--wine);
+  outline-offset: 3px;
+}
+
+.guide-table-scroll-hint {
+  display: none;
+  margin-bottom: 8px;
+  color: var(--wine);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-align: right;
 }
 
 .guide-table {
@@ -93,6 +115,28 @@
 
 .guide-table tr.is-highlighted .guide-table-typecell {
   color: var(--wine);
+}
+
+.guide-table th.is-highlighted-center {
+  background: var(--wine-dark);
+  box-shadow: inset 0 4px 0 #d9a8ab;
+}
+
+.guide-table td.is-highlighted-center {
+  border-color: rgba(143, 31, 38, 0.42);
+  color: var(--ink);
+  background: rgba(143, 31, 38, 0.09);
+}
+
+.guide-center-badge {
+  width: fit-content;
+  margin-bottom: 5px;
+  padding: 3px 6px;
+  display: block;
+  color: var(--wine-dark);
+  background: var(--paper-light);
+  font-size: 8px;
+  letter-spacing: 0.08em;
 }
 
 .guide-inline-list {
@@ -156,18 +200,66 @@
 }
 
 @media (max-width: 760px) {
+  .guide-details {
+    margin-top: 32px;
+    padding-top: 14px;
+  }
+
+  .guide-summary {
+    font-size: 20px;
+    line-height: 1.4;
+  }
+
+  .guide-body {
+    margin-top: 22px;
+    gap: 40px;
+  }
+
+  .guide-table-scroll-hint {
+    display: block;
+  }
+
+  .guide-table {
+    min-width: 680px;
+  }
+
+  .guide-table th,
+  .guide-table td {
+    padding: 10px 9px;
+  }
+
+  .guide-table th:first-child,
+  .guide-table td:first-child {
+    position: sticky;
+    left: 0;
+    z-index: 1;
+    background: var(--paper-light);
+  }
+
+  .guide-table th:first-child {
+    z-index: 2;
+    color: var(--paper-light);
+    background: var(--ink);
+  }
+
+  .guide-table tr.is-highlighted > td:first-child {
+    color: var(--wine);
+    background: #f5e4e2;
+  }
+
   .guide-type-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
-@media (max-width: 480px) {
+@media (max-width: 560px) {
   .guide-type-grid {
     grid-template-columns: 1fr;
   }
 
   .guide-type-card {
     min-height: 0;
+    padding: 18px 16px;
   }
 }
 

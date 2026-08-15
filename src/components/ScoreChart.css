@@ -3,8 +3,11 @@
   margin-top: 18px;
   padding: 18px 0 12px;
   overflow-x: auto;
+  overscroll-behavior-x: contain;
   border-block: 1px solid var(--border);
   background: transparent;
+  scrollbar-color: rgba(143, 31, 38, 0.45) transparent;
+  -webkit-overflow-scrolling: touch;
 }
 
 .score-chart-svg {
@@ -77,8 +80,17 @@
   font-weight: 800;
 }
 
-@media (max-width: 660px) {
+@media (max-width: 760px) {
   .score-chart-scroll-hint {
     display: block;
+  }
+
+  .score-chart-wrap {
+    margin-top: 14px;
+    padding-top: 12px;
+  }
+
+  .score-chart-svg {
+    min-width: 600px;
   }
 }

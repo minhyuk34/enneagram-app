@@ -34,12 +34,14 @@
 html {
   background: var(--paper);
   scroll-behavior: smooth;
+  -webkit-text-size-adjust: 100%;
 }
 
 body {
   margin: 0;
   min-width: 320px;
   min-height: 100svh;
+  overflow-x: hidden;
   background:
     linear-gradient(rgba(143, 31, 38, 0.025) 1px, transparent 1px),
     linear-gradient(90deg, rgba(143, 31, 38, 0.025) 1px, transparent 1px),
@@ -48,12 +50,23 @@ body {
 }
 
 button,
-input {
+input,
+select,
+textarea {
   font: inherit;
 }
 
-button {
+button,
+a,
+input,
+select {
   -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+img,
+svg {
+  max-width: 100%;
 }
 
 #root {

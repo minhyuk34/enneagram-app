@@ -42,7 +42,7 @@ export default function ScoreChart({ scores, highlightType }) {
       >
         <defs>
           <pattern id="graphPaper" width="14.5" height="14.5" patternUnits="userSpaceOnUse">
-            <path d="M 14.5 0 L 0 0 0 14.5" fill="none" stroke="#cfe3f2" strokeWidth="1" />
+            <path d="M 14.5 0 L 0 0 0 14.5" fill="none" stroke="#ded3c6" strokeWidth="1" />
           </pattern>
         </defs>
 
@@ -52,7 +52,7 @@ export default function ScoreChart({ scores, highlightType }) {
           width={PLOT_W}
           height={PLOT_H}
           fill="url(#graphPaper)"
-          stroke="#8fb8d8"
+          stroke="#a8988e"
         />
 
         {/* 세로 그리드 (유형 구분선) */}
@@ -63,7 +63,7 @@ export default function ScoreChart({ scores, highlightType }) {
             y1={MARGIN.top}
             x2={p.x}
             y2={MARGIN.top + PLOT_H}
-            stroke="#8fb8d8"
+            stroke="#c9bbb0"
             strokeWidth={1}
           />
         ))}
@@ -76,7 +76,7 @@ export default function ScoreChart({ scores, highlightType }) {
               y1={yPos(t)}
               x2={MARGIN.left + PLOT_W}
               y2={yPos(t)}
-              stroke="#5b8bb0"
+              stroke="#9c8c82"
               strokeWidth={1}
             />
             <text
@@ -106,7 +106,7 @@ export default function ScoreChart({ scores, highlightType }) {
         <polyline
           points={polylinePoints}
           fill="none"
-          stroke="#1b1b1b"
+          stroke="#171310"
           strokeWidth={2}
         />
         {points.map((p) => (
@@ -115,7 +115,7 @@ export default function ScoreChart({ scores, highlightType }) {
             cx={p.x}
             cy={p.y}
             r={p.type === highlightType ? 6 : 4}
-            fill={p.type === highlightType ? "#aa3bff" : "#1b1b1b"}
+            fill={p.type === highlightType ? "#8f1f26" : "#171310"}
           />
         ))}
 

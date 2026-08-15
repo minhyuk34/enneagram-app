@@ -1,16 +1,55 @@
-# React + Vite
+# 에니어그램 검사 앱
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+집단별 검사 비밀번호, 개인 결과 보관, 관리자 통계 대시보드를 제공하는 React + Google Apps Script 앱입니다.
 
-Currently, two official plugins are available:
+## 화면 주소
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+- 참가자 검사: `https://minhyuk34.github.io/enneagram-app/`
+- 관리자: `https://minhyuk34.github.io/enneagram-app/#/admin`
 
-## React Compiler
+## 관리자 기능
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+- 강의 집단 생성, 이름 변경, 검사 열기/닫기
+- 집단별 검사 비밀번호 설정과 수시 변경
+- 전체·집단별 검사 횟수와 검사 인원 확인
+- 1~9번 최종 유형별 인원 통계
+- 장·가슴·머리 힘의 중심별 인원 통계
+- 검사자 목록 및 개인별 점수 그래프, 날개, 분열·통합 방향 확인
 
-## Expanding the Oxlint configuration
+## 참가자 권한 규칙
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and Oxlint's TypeScript related rules in your project.
+- 참가자는 관리자가 활성화한 집단만 드롭다운에서 선택할 수 있습니다.
+- 현재 집단의 검사 비밀번호가 맞아야 새 검사를 시작하고 결과를 저장할 수 있습니다.
+- 이전에 검사했던 이메일은 비밀번호가 바뀌어도 저장된 과거 결과를 볼 수 있습니다.
+- 비밀번호가 바뀐 기존 참가자는 새 비밀번호를 받기 전까지 새 검사를 시작할 수 없습니다.
+
+## Apps Script 업데이트
+
+프런트엔드보다 `gas/Code.gs`를 먼저 배포해야 합니다.
+
+1. 검사 기록 Google Sheet에서 **확장 프로그램 → Apps Script**를 엽니다.
+2. `gas/Code.gs` 전체를 Apps Script의 `Code.gs`에 붙여넣고 저장합니다.
+3. **프로젝트 설정 → 스크립트 속성**에 아래 항목을 추가합니다.
+   - 속성: `ADMIN_PASSWORD`
+   - 값: 최초 관리자 비밀번호(8자 이상 권장)
+4. **배포 → 배포 관리 → 수정 → 새 버전 → 배포**를 선택합니다.
+5. 기존 웹 앱 URL은 그대로 유지합니다.
+6. 관리자 페이지에 최초 로그인합니다. 최초 로그인 시 평문 `ADMIN_PASSWORD` 속성은 해시로 변환된 뒤 자동 삭제됩니다.
+
+업데이트 후 `기록` 시트에는 `집단ID`, `기록ID` 열이 기존 열 뒤에 추가되고, `집단` 시트가 새로 생성됩니다. 기존 검사 기록은 삭제되거나 이동되지 않습니다.
+
+## 로컬 개발
+
+```bash
+npm ci
+npm run dev
+```
+
+검증:
+
+```bash
+npm run lint
+npm run build
+```
+
+GitHub Pages 배포는 `main` 브랜치에 반영되면 `.github/workflows/deploy.yml`을 통해 자동 실행됩니다.

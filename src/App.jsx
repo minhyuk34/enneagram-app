@@ -1,10 +1,10 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { QUESTIONS } from "./data/questions";
 import { TYPE_INFO } from "./data/enneagramInfo";
 import { computeResult, describeResult, recordToResult } from "./utils/scoring";
 import { calcManAge, MIN_BIRTH_YEAR, MAX_BIRTH_YEAR } from "./utils/age";
 import { MAX_RECORDS_PER_EMAIL } from "./config";
-import { lookupByEmail, submitResult } from "./api/gas";
+import { listGroups, participantLogin, submitResult } from "./api/gas";
 import ScoreChart from "./components/ScoreChart";
 import EnneagramGuide from "./components/EnneagramGuide";
 import "./App.css";
@@ -18,6 +18,18 @@ const SCALE = [
   { value: 4, label: "그렇다" },
   { value: 5, label: "매우 그렇다" },
 ];
+
+const ERROR_MESSAGES = {
+  admin_not_configured: "관리자 설정이 아직 완료되지 않았습니다.",
+  group_not_found: "선택한 집단은 현재 검사를 받을 수 없습니다.",
+  invalid_access_code: "검사 비밀번호가 올바르지 않습니다.",
+  GAS_NOT_CONFIGURED: "검사 서버가 연결되지 않았습니다.",
+};
+
+function getErrorMessage(error, fallback) {
+  const code = error?.code || error?.message || error;
+  return ERROR_MESSAGES[code] || fallback;
+}
 
 function EnneagramEmblem() {
   const points = [
@@ -69,15 +81,29 @@ function formatDate(ts) {
   });
 }
 
-function LoginScreen({ onLogin, loading }) {
+function LoginScreen({
+  onLogin,
+  loading,
+  groups,
+  groupsLoading,
+  groupsError,
+  loginError,
+  onReloadGroups,
+}) {
   const [form, setForm] = useState({
     name: "",
     birthYear: "",
-    affiliation: "",
+    groupId: "",
+    accessCode: "",
     email: "",
   });
   const manAge = calcManAge(form.birthYear);
-  const canSubmit = form.name && manAge != null && form.affiliation && form.email;
+  const canSubmit =
+    form.name &&
+    manAge != null &&
+    form.groupId &&
+    form.accessCode &&
+    form.email;
 
   function update(field, value) {
     setForm((prev) => ({ ...prev, [field]: value }));
@@ -86,7 +112,8 @@ function LoginScreen({ onLogin, loading }) {
   function submit(e) {
     e.preventDefault();
     if (!canSubmit || loading) return;
-    onLogin({ ...form, age: manAge });
+    const group = groups.find((item) => item.id === form.groupId);
+    onLogin({ ...form, age: manAge, affiliation: group?.name || "" });
   }
 
   return (
@@ -152,13 +179,22 @@ function LoginScreen({ onLogin, loading }) {
           </label>
           <label className="form-field">
             <span className="field-label">소속</span>
-            <input
+            <select
               className="text-input"
-              placeholder="소속을 입력해 주세요"
-              value={form.affiliation}
-              onChange={(e) => update("affiliation", e.target.value)}
+              value={form.groupId}
+              onChange={(e) => update("groupId", e.target.value)}
+              disabled={groupsLoading || groups.length === 0}
               required
-            />
+            >
+              <option value="">
+                {groupsLoading ? "집단을 불러오는 중" : "집단을 선택해 주세요"}
+              </option>
+              {groups.map((group) => (
+                <option key={group.id} value={group.id}>
+                  {group.name}{group.active === false ? " (검사 종료 · 기록 조회만)" : ""}
+                </option>
+              ))}
+            </select>
           </label>
           <label className="form-field">
             <span className="field-label">이메일</span>
@@ -171,8 +207,35 @@ function LoginScreen({ onLogin, loading }) {
               required
             />
           </label>
+          <label className="form-field form-field-wide">
+            <span className="field-label">검사 비밀번호</span>
+            <input
+              className="text-input"
+              type="password"
+              autoComplete="one-time-code"
+              placeholder="관리자에게 받은 비밀번호"
+              value={form.accessCode}
+              onChange={(e) => update("accessCode", e.target.value)}
+              required
+            />
+          </label>
+          {(groupsError || loginError) && (
+            <div className="form-message error" role="alert">
+              <span>{groupsError || loginError}</span>
+              {groupsError && (
+                <button type="button" onClick={onReloadGroups}>
+                  다시 불러오기
+                </button>
+              )}
+            </div>
+          )}
+          {!groupsLoading && !groupsError && groups.length === 0 && (
+            <p className="form-message">
+              현재 참여 가능한 집단이 없습니다. 관리자에게 문의해 주세요.
+            </p>
+          )}
         <button className="btn primary" type="submit" disabled={!canSubmit || loading}>
-          <span>{loading ? "기록을 확인하는 중" : "검사 시작하기"}</span>
+          <span>{loading ? "기록을 확인하는 중" : "기록 확인 · 검사 시작"}</span>
           <span aria-hidden="true">→</span>
         </button>
       </form>
@@ -184,7 +247,14 @@ function LoginScreen({ onLogin, loading }) {
   );
 }
 
-function HistoryScreen({ userInfo, records, onSelect, onStartNew }) {
+function HistoryScreen({
+  userInfo,
+  records,
+  canTest,
+  accessError,
+  onSelect,
+  onStartNew,
+}) {
   const sorted = [...records].sort(
     (a, b) => new Date(b.timestamp) - new Date(a.timestamp)
   );
@@ -198,6 +268,20 @@ function HistoryScreen({ userInfo, records, onSelect, onStartNew }) {
         {MAX_RECORDS_PER_EMAIL}개까지 보관되며, 초과 시 가장 오래된 기록부터
         자동으로 삭제됩니다.
       </p>
+
+      {!canTest && (
+        <div className="access-restricted" role="status">
+          <span className="access-restricted-icon" aria-hidden="true">○</span>
+          <div>
+            <strong>현재는 새 검사를 시작할 수 없습니다.</strong>
+            <p>
+              {accessError === "invalid_access_code"
+                ? "집단의 검사 비밀번호가 변경되었거나 입력한 비밀번호가 다릅니다. 저장된 결과는 계속 확인할 수 있습니다."
+                : "선택한 집단의 검사가 현재 닫혀 있습니다. 저장된 결과는 계속 확인할 수 있습니다."}
+            </p>
+          </div>
+        </div>
+      )}
 
       <div className="history-list">
         {sorted.map((rec, idx) => (
@@ -216,10 +300,12 @@ function HistoryScreen({ userInfo, records, onSelect, onStartNew }) {
         ))}
       </div>
 
-      <button className="btn primary" onClick={onStartNew}>
-        <span>새로 검사하기</span>
-        <span aria-hidden="true">→</span>
-      </button>
+      {canTest && (
+        <button className="btn primary" onClick={onStartNew}>
+          <span>새로 검사하기</span>
+          <span aria-hidden="true">→</span>
+        </button>
+      )}
     </section>
   );
 }
@@ -343,6 +429,8 @@ function ResultScreen({
               "결과가 저장되었고 이메일로 전송되었습니다."}
             {submitStatus === "error" &&
               "결과 저장/이메일 전송에 실패했습니다. 아래 결과는 정상 확인 가능합니다."}
+            {submitStatus === "access_denied" &&
+              "검사 중 비밀번호가 변경되어 결과가 저장되지 않았습니다. 관리자에게 새 비밀번호를 받은 뒤 다시 검사해 주세요."}
           </p>
         )}
 
@@ -417,28 +505,69 @@ function App() {
   const [screen, setScreen] = useState("login");
   const [answers, setAnswers] = useState({});
   const [userInfo, setUserInfo] = useState(null);
+  const [groups, setGroups] = useState([]);
+  const [groupsLoading, setGroupsLoading] = useState(true);
+  const [groupsError, setGroupsError] = useState("");
+  const [loginError, setLoginError] = useState("");
   const [records, setRecords] = useState([]);
+  const [canTest, setCanTest] = useState(false);
+  const [accessError, setAccessError] = useState(null);
   const [result, setResult] = useState(null);
   const [isExisting, setIsExisting] = useState(false);
   const [loginLoading, setLoginLoading] = useState(false);
   const [submitStatus, setSubmitStatus] = useState("idle");
 
-  async function fetchRecords(email) {
+  async function refreshGroups() {
+    setGroupsLoading(true);
+    setGroupsError("");
     try {
-      const res = await lookupByEmail(email);
-      return res.records || [];
-    } catch {
-      return [];
+      const res = await listGroups();
+      setGroups(res.groups || []);
+    } catch (error) {
+      setGroupsError(
+        getErrorMessage(error, "집단 목록을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.")
+      );
+    } finally {
+      setGroupsLoading(false);
     }
   }
 
+  useEffect(() => {
+    refreshGroups();
+  }, []);
+
   async function handleLogin(info) {
-    setUserInfo(info);
     setLoginLoading(true);
-    const recs = await fetchRecords(info.email);
-    setRecords(recs);
-    setScreen(recs.length > 0 ? "history" : "quiz");
-    setLoginLoading(false);
+    setLoginError("");
+    try {
+      const res = await participantLogin(info);
+      const recs = res.records || [];
+      const nextUserInfo = {
+        ...info,
+        affiliation: res.group?.name || info.affiliation,
+      };
+      setUserInfo(nextUserInfo);
+      setRecords(recs);
+      setCanTest(Boolean(res.canTest));
+      setAccessError(res.accessError || null);
+
+      if (recs.length > 0) {
+        setScreen("history");
+      } else if (res.canTest) {
+        setScreen("quiz");
+      } else {
+        setUserInfo(null);
+        setLoginError(
+          ERROR_MESSAGES[res.accessError] || "관리자에게 받은 집단과 비밀번호를 확인해 주세요."
+        );
+      }
+    } catch (error) {
+      setLoginError(
+        getErrorMessage(error, "로그인 정보를 확인하지 못했습니다. 잠시 후 다시 시도해 주세요.")
+      );
+    } finally {
+      setLoginLoading(false);
+    }
   }
 
   function handleSelectRecord(rec) {
@@ -448,6 +577,7 @@ function App() {
   }
 
   function handleStartNew() {
+    if (!canTest) return;
     setAnswers({});
     setScreen("quiz");
   }
@@ -461,23 +591,39 @@ function App() {
     try {
       await submitResult({ ...userInfo, result: describeResult(r) });
       setSubmitStatus("saved");
-    } catch {
-      setSubmitStatus("error");
+    } catch (error) {
+      if (error?.code === "invalid_access_code" || error?.code === "group_not_found") {
+        setCanTest(false);
+        setAccessError(error.code);
+        setSubmitStatus("access_denied");
+      } else {
+        setSubmitStatus("error");
+      }
     }
   }
 
   async function handleViewHistory() {
     setLoginLoading(true);
-    const recs = await fetchRecords(userInfo.email);
-    setRecords(recs);
-    setLoginLoading(false);
-    setScreen("history");
+    try {
+      const res = await participantLogin(userInfo);
+      setRecords(res.records || []);
+      setCanTest(Boolean(res.canTest));
+      setAccessError(res.accessError || null);
+      setScreen("history");
+    } catch {
+      setScreen("history");
+    } finally {
+      setLoginLoading(false);
+    }
   }
 
   function restart() {
     setAnswers({});
     setUserInfo(null);
     setRecords([]);
+    setCanTest(false);
+    setAccessError(null);
+    setLoginError("");
     setResult(null);
     setIsExisting(false);
     setSubmitStatus("idle");
@@ -502,12 +648,22 @@ function App() {
       </header>
       <main className={`app-shell screen-${screen}`}>
         {screen === "login" && (
-          <LoginScreen onLogin={handleLogin} loading={loginLoading} />
+          <LoginScreen
+            onLogin={handleLogin}
+            loading={loginLoading}
+            groups={groups}
+            groupsLoading={groupsLoading}
+            groupsError={groupsError}
+            loginError={loginError}
+            onReloadGroups={refreshGroups}
+          />
         )}
         {screen === "history" && userInfo && (
           <HistoryScreen
             userInfo={userInfo}
             records={records}
+            canTest={canTest}
+            accessError={accessError}
             onSelect={handleSelectRecord}
             onStartNew={handleStartNew}
           />
@@ -532,7 +688,10 @@ function App() {
       </main>
       <footer className="site-footer">
         <span>ENNEAGRAM PERSONALITY PROFILE</span>
-        <span>SEOUL · {new Date().getFullYear()}</span>
+        <span className="footer-links">
+          <a href="#/admin">ADMIN</a>
+          <span>SEOUL · {new Date().getFullYear()}</span>
+        </span>
       </footer>
     </div>
   );

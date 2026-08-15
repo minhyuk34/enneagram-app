@@ -11,7 +11,7 @@ import "./EnneagramGuide.css";
 
 const TYPES = [1, 2, 3, 4, 5, 6, 7, 8, 9];
 
-function IntegrationDisintegrationSection() {
+function IntegrationDisintegrationSection({ highlightType }) {
   return (
     <section className="guide-section">
       <h3 className="guide-heading">1. 에니어그램의 분열과 통합</h3>
@@ -38,7 +38,7 @@ function IntegrationDisintegrationSection() {
             {TYPES.map((t) => {
               const g = GROWTH_TABLE[t];
               return (
-                <tr key={t}>
+                <tr key={t} className={t === highlightType ? "is-highlighted" : undefined}>
                   <td className="guide-table-typecell">
                     {t}번 · {g.name}
                   </td>
@@ -107,7 +107,7 @@ function CentersSection() {
   );
 }
 
-function TypeDescriptionsSection() {
+function TypeDescriptionsSection({ highlightType }) {
   return (
     <section className="guide-section">
       <h3 className="guide-heading">3. 9가지 성격유형별 설명</h3>
@@ -115,7 +115,10 @@ function TypeDescriptionsSection() {
         {TYPES.map((t) => {
           const d = TYPE_LONG_DESC[t];
           return (
-            <div className="guide-type-card" key={t}>
+            <div
+              className={`guide-type-card${t === highlightType ? " is-highlighted" : ""}`}
+              key={t}
+            >
               <p className="guide-type-card-title">
                 {t}. {GROWTH_TABLE[t].name}
               </p>
@@ -130,7 +133,7 @@ function TypeDescriptionsSection() {
   );
 }
 
-function StrengthsWeaknessesSection() {
+function StrengthsWeaknessesSection({ highlightType }) {
   return (
     <section className="guide-section">
       <h3 className="guide-heading">4. 에니어그램 성격유형별 강점과 약점</h3>
@@ -148,7 +151,7 @@ function StrengthsWeaknessesSection() {
             {TYPES.map((t) => {
               const sw = STRENGTHS_WEAKNESSES[t];
               return (
-                <tr key={t}>
+                <tr key={t} className={t === highlightType ? "is-highlighted" : undefined}>
                   <td>{sw.center}</td>
                   <td className="guide-table-typecell">
                     {t}번 · {GROWTH_TABLE[t].name}
@@ -165,7 +168,7 @@ function StrengthsWeaknessesSection() {
   );
 }
 
-function WingsSection() {
+function WingsSection({ highlightType }) {
   return (
     <section className="guide-section">
       <h3 className="guide-heading">5. 에니어그램의 날개(Wing)</h3>
@@ -187,7 +190,7 @@ function WingsSection() {
           <tbody>
             {TYPES.map((t) =>
               WING_DETAILS[t].map((w, i) => (
-                <tr key={w.code}>
+                <tr key={w.code} className={t === highlightType ? "is-highlighted" : undefined}>
                   {i === 0 && (
                     <td className="guide-table-typecell" rowSpan={2}>
                       {t}번 · {GROWTH_TABLE[t].name}
@@ -212,16 +215,16 @@ function WingsSection() {
   );
 }
 
-export default function EnneagramGuide() {
+export default function EnneagramGuide({ highlightType }) {
   return (
     <details className="guide-details" open>
       <summary className="guide-summary">에니어그램 상세 가이드 (KEPTI)</summary>
       <div className="guide-body">
-        <IntegrationDisintegrationSection />
+        <IntegrationDisintegrationSection highlightType={highlightType} />
         <CentersSection />
-        <TypeDescriptionsSection />
-        <StrengthsWeaknessesSection />
-        <WingsSection />
+        <TypeDescriptionsSection highlightType={highlightType} />
+        <StrengthsWeaknessesSection highlightType={highlightType} />
+        <WingsSection highlightType={highlightType} />
       </div>
     </details>
   );

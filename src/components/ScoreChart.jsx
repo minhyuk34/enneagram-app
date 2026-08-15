@@ -118,6 +118,17 @@ export default function ScoreChart({ scores, highlightType }) {
             fill={p.type === highlightType ? "#8f1f26" : "#171310"}
           />
         ))}
+        {points.map((p) => (
+          <text
+            key={`value-${p.type}`}
+            x={p.x}
+            y={p.y - 12}
+            textAnchor="middle"
+            className={`score-chart-point-value${p.type === highlightType ? " is-highlighted" : ""}`}
+          >
+            {p.score}
+          </text>
+        ))}
 
         {/* X축 라벨 (유형 번호 + 이름) */}
         <text

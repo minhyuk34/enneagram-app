@@ -38,6 +38,19 @@
   letter-spacing: 0.08em;
 }
 
+.score-chart-point-value {
+  fill: var(--ink);
+  stroke: var(--paper-light);
+  stroke-width: 3px;
+  paint-order: stroke;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.score-chart-point-value.is-highlighted {
+  fill: var(--wine);
+}
+
 .score-chart-x-number {
   fill: #171310;
   font-family: var(--serif);

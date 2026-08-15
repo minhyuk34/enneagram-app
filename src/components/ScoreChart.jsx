@@ -129,11 +129,20 @@ export default function ScoreChart({ scores, highlightType }) {
         </text>
         {points.map((p) => (
           <g key={`x-${p.type}`}>
+            {p.type === highlightType && (
+              <circle
+                cx={p.x}
+                cy={MARGIN.top + PLOT_H + 15}
+                r={13}
+                className="score-chart-x-highlight"
+                aria-hidden="true"
+              />
+            )}
             <text
               x={p.x}
               y={MARGIN.top + PLOT_H + 20}
               textAnchor="middle"
-              className="score-chart-x-number"
+              className={`score-chart-x-number${p.type === highlightType ? " is-highlighted" : ""}`}
             >
               {p.type}
             </text>
@@ -141,7 +150,7 @@ export default function ScoreChart({ scores, highlightType }) {
               x={p.x}
               y={MARGIN.top + PLOT_H + 38}
               textAnchor="middle"
-              className="score-chart-x-name"
+              className={`score-chart-x-name${p.type === highlightType ? " is-highlighted" : ""}`}
             >
               {TYPE_INFO[p.type].name}
             </text>

@@ -19,6 +19,11 @@ var ADMIN_PASSWORD_HASH_PROPERTY = "ADMIN_PASSWORD_HASH";
 var ADMIN_PASSWORD_VERSION_PROPERTY = "ADMIN_PASSWORD_VERSION";
 var PASSWORD_SALT_PROPERTY = "PASSWORD_SALT";
 
+var ENNEAGRAM_TYPE_NAMES = {
+  1: "개혁가", 2: "조력가", 3: "성취자", 4: "개인주의자", 5: "탐구자",
+  6: "충성가", 7: "열정가", 8: "도전자", 9: "평화주의자",
+};
+
 var RECORD_HEADER = [
   "타임스탬프", "이름", "만나이", "출생연도", "소속", "이메일",
   "유형", "유형명", "힘의중심",
@@ -459,15 +464,340 @@ function enforceMaxRecords_(sheet, email, maxCount) {
 
 function sendResultEmail_(name, email, groupName, result) {
   var subject = "[에니어그램 검사 결과] " + name + "님 - " + result.type + "번 유형 (" + result.typeName + ")";
-  var body =
-    name + "님의 에니어그램 검사 결과입니다.\n\n" +
-    "소속: " + groupName + "\n" +
-    "유형: " + result.type + "번 - " + result.typeName + "\n" +
-    "힘의 중심: " + result.center + "\n" +
-    "날개: " + result.wingLabel + " (" + result.wingName + ")\n" +
-    "분열(스트레스) 방향: " + result.stress + "번 - " + result.stressName + "\n" +
-    "통합(성장) 방향: " + result.growth + "번 - " + result.growthName + "\n";
-  MailApp.sendEmail(email, subject, body);
+  var chartBlob = null;
+  try {
+    chartBlob = buildScoreChart_(result);
+  } catch (chartError) {
+    Logger.log("score chart generation failed: " + chartError);
+  }
+
+  var message = {
+    to: email,
+    subject: subject,
+    body: buildResultEmailText_(name, groupName, result),
+    htmlBody: buildResultEmailHtml_(name, groupName, result, Boolean(chartBlob)),
+    name: "에니어그램 검사",
+  };
+  if (chartBlob) {
+    message.inlineImages = { scoreChart: chartBlob };
+  }
+  MailApp.sendEmail(message);
+}
+
+function buildScoreChart_(result) {
+  var scores = result.scores || {};
+  var selectedType = Number(result.type);
+  var data = Charts.newDataTable()
+    .addColumn(Charts.ColumnType.STRING, "유형")
+    .addColumn(Charts.ColumnType.NUMBER, "점수")
+    .addColumn(Charts.ColumnType.NUMBER, "최종 유형");
+
+  for (var type = 1; type <= 9; type++) {
+    var score = Number(scores[type] || 0);
+    data.addRow([type + "번", score, type === selectedType ? score : null]);
+  }
+
+  var chart = Charts.newLineChart()
+    .setDataTable(data.build())
+    .setDimensions(720, 420)
+    .setTitle("유형별 점수")
+    .setXAxisTitle("에니어그램 유형")
+    .setYAxisTitle("점수")
+    .setRange(0, 45)
+    .setColors(["#171310", "#8f1f26"])
+    .setOption("legend.position", "none")
+    .setOption("backgroundColor", "#fffaf2")
+    .setOption("chartArea", { left: 58, top: 58, width: "80%", height: "66%" })
+    .setOption("hAxis.textStyle", { color: "#615751", fontSize: 11 })
+    .setOption("vAxis.textStyle", { color: "#615751", fontSize: 11 })
+    .setOption("vAxis.gridlines", { color: "#ded3c6" })
+    .setOption("series", {
+      0: { color: "#171310", lineWidth: 2, pointSize: 5 },
+      1: { color: "#8f1f26", lineWidth: 0, pointSize: 10 },
+    })
+    .build();
+
+  return chart.getAs("image/png").setName("enneagram-score-chart.png");
+}
+
+function buildResultEmailHtml_(name, groupName, result, hasChart) {
+  var guide = result.guide || {};
+  var selectedType = Number(result.type);
+  var growthTable = guide.growthTable || {};
+  var centers = Array.isArray(guide.centers) ? guide.centers : [];
+  var typeDescriptions = guide.typeDescriptions || {};
+  var strengthsWeaknessesTable = guide.strengthsWeaknessesTable || {};
+  var wingDetails = guide.wingDetails || {};
+  var integrationIntro = Array.isArray(guide.integrationIntro) ? guide.integrationIntro : [];
+  var wingIntro = Array.isArray(guide.wingIntro) ? guide.wingIntro : [];
+  var html = "";
+
+  // 한동안 이전 프런트엔드에서 전송한 단일 선택 데이터도 지원한다.
+  if (guide.growth && !growthTable[selectedType]) growthTable[selectedType] = guide.growth;
+  if (guide.center && centers.length === 0) centers = [guide.center];
+  if (guide.typeDescription && !typeDescriptions[selectedType]) typeDescriptions[selectedType] = guide.typeDescription;
+  if (guide.strengthsWeaknesses && !strengthsWeaknessesTable[selectedType]) strengthsWeaknessesTable[selectedType] = guide.strengthsWeaknesses;
+  if (Array.isArray(guide.wings) && !wingDetails[selectedType]) wingDetails[selectedType] = guide.wings;
+
+  html += '<style>';
+  html += '.er-card{margin:0 0 12px;border:1px solid #d5cbc3;background:#fffaf2}.er-card.er-selected{border-color:#8f1f26;background:#faeceb}.er-card-head{padding:13px 14px;border-bottom:1px solid #d5cbc3}.er-selected .er-card-head{border-color:#8f1f26}.er-card-label{margin-bottom:4px;color:#776b63;font-size:9px;font-weight:700;letter-spacing:1px}.er-selected .er-card-label,.er-selected .er-card-title{color:#8f1f26}.er-card-title{color:#171310;font-size:15px;font-weight:700;line-height:1.5}.er-kv{width:100%;border-collapse:collapse;border-top:1px solid #d5cbc3}.er-kv th,.er-kv td{padding:11px 10px;border-bottom:1px solid #d5cbc3;text-align:left;vertical-align:top;line-height:1.7}.er-kv th{width:128px;color:#8f1f26;background:#f6f0e7;font-size:11px}.er-kv td{color:#615751;font-size:12px;white-space:pre-line}.er-desc{padding:16px;color:#615751;font-size:12px;line-height:1.8}.er-list{margin:10px 14px 14px;padding-left:20px;color:#615751;font-size:12px;line-height:1.75}.er-score{width:100%;border-collapse:collapse;border:1px solid #d5cbc3}.er-score th,.er-score td{padding:9px 10px;text-align:left;font-size:11px}.er-score th{background:#171310;color:#fffaf2}.er-score td{border-bottom:1px solid #d5cbc3;color:#171310;font-size:12px}.er-score .er-selected{background:#faeceb;color:#8f1f26;font-weight:700}@media(max-width:520px){.er-kv th{width:88px}.er-kv th,.er-kv td{padding:9px 8px}}';
+  html += '</style>';
+  html += '<div style="margin:0;padding:24px 8px;background:#f6f0e7;color:#171310;font-family:Pretendard,Apple SD Gothic Neo,Noto Sans KR,Malgun Gothic,Arial,sans-serif;">';
+  html += '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="width:100%;max-width:760px;margin:0 auto;border-collapse:collapse;background:#fffaf2;border:1px solid #b4a9a1;">';
+  html += '<tr><td style="padding:30px 28px;background:#8f1f26;color:#fffaf2;">';
+  html += '<div style="font-size:11px;font-weight:700;letter-spacing:2px;">ENNEAGRAM PERSONALITY PROFILE</div>';
+  html += '<h1 style="margin:12px 0 8px;font-size:30px;line-height:1.35;color:#fffaf2;">' + escapeHtml_(name) + '님의 검사 결과</h1>';
+  html += '<div style="font-size:17px;line-height:1.6;">' + escapeHtml_(result.type) + '번 유형 · ' + escapeHtml_(result.typeName) + '</div>';
+  html += '</td></tr>';
+  html += '<tr><td style="padding:28px;">';
+
+  html += emailSectionTitle_("RESULT SUMMARY", "핵심 결과");
+  html += emailKeyValueTable_([
+    ["소속", groupName],
+    ["최종 유형", result.type + "번 · " + result.typeName],
+    ["힘의 중심", result.center],
+    ["날개", result.wingLabel + " · " + result.wingName],
+    ["분열(스트레스) 방향", result.stress + "번 · " + result.stressName],
+    ["통합(성장) 방향", result.growth + "번 · " + result.growthName],
+  ]);
+
+  html += emailSectionTitle_("SCORE PROFILE", "유형별 점수");
+  if (hasChart) {
+    html += '<img src="cid:scoreChart" alt="1번부터 9번까지의 유형별 점수 그래프" width="720" style="display:block;width:100%;max-width:720px;height:auto;margin:0 0 14px;border:0;">';
+  }
+  html += buildScoreTableHtml_(result);
+
+  if (Object.keys(growthTable).length || integrationIntro.length) {
+    html += emailSectionTitle_("INTEGRATION & DISINTEGRATION", "분열과 통합");
+    html += emailParagraphs_(integrationIntro);
+    for (var growthType = 1; growthType <= 9; growthType++) {
+      var growth = growthTable[growthType];
+      if (!growth) continue;
+      html += emailGuideCard_(
+        growthType + "번 · " + growth.name,
+        growthType === selectedType ? "나의 최종 유형" : "유형별 결과표",
+        growthType === selectedType,
+        emailKeyValueTable_([
+          ["심리적 기능", growth.psychFunction],
+          ["회피", growth.avoidance],
+          ["함정", growth.trap],
+          ["약점(분열)", growth.weakness],
+          ["강점(통합)", growth.strength],
+          ["성장 전략", joinListText_(growth.strategies)],
+          ["좌우명", growth.motto],
+        ])
+      );
+    }
+  }
+
+  if (centers.length) {
+    html += emailSectionTitle_("CENTER OF INTELLIGENCE", "에니어그램 힘의 중심");
+    for (var centerIndex = 0; centerIndex < centers.length; centerIndex++) {
+      var center = centers[centerIndex];
+      var isSelectedCenter = (center.types || []).indexOf(selectedType) !== -1;
+      html += emailGuideCard_(
+        center.key + " 중심 · " + (center.types || []).join(" · ") + "번",
+        isSelectedCenter ? "나의 힘의 중심" : "힘의 중심 결과표",
+        isSelectedCenter,
+        emailKeyValueTable_([
+          ["설명", center.desc],
+          ["감정", center.emotion],
+          ["관심", center.interest],
+          ["상황 파악", center.situationAwareness],
+          ["의사 결정", center.decision],
+          ["판단 양식", center.judgment],
+          ["신체 발달", center.bodyDevelopment],
+          ["지능", center.intelligence],
+        ])
+      );
+    }
+  }
+
+  if (Object.keys(typeDescriptions).length) {
+    html += emailSectionTitle_("TYPE DESCRIPTION", "9가지 성격유형별 설명");
+    for (var descriptionType = 1; descriptionType <= 9; descriptionType++) {
+      var description = typeDescriptions[descriptionType];
+      if (!description) continue;
+      var descriptionName = growthTable[descriptionType] ? growthTable[descriptionType].name : ENNEAGRAM_TYPE_NAMES[descriptionType];
+      var descriptionBody = '<div class="er-desc">';
+      descriptionBody += '<div style="margin-bottom:9px;color:#8f1f26;font-weight:700;">' + escapeHtml_(description.tagline) + '</div>';
+      descriptionBody += '<p style="margin:0 0 12px;">' + escapeHtml_(description.body) + '</p>';
+      descriptionBody += '<p style="margin:0;padding-top:10px;border-top:1px solid #d5cbc3;color:#641116;">주의할 점 · ' + escapeHtml_(description.caution) + '</p></div>';
+      html += emailGuideCard_(
+        descriptionType + "번 · " + descriptionName,
+        descriptionType === selectedType ? "나의 최종 유형" : "성격유형별 설명",
+        descriptionType === selectedType,
+        descriptionBody
+      );
+    }
+  }
+
+  if (Object.keys(strengthsWeaknessesTable).length) {
+    html += emailSectionTitle_("STRENGTHS & WEAKNESSES", "성격유형별 강점과 약점");
+    for (var swType = 1; swType <= 9; swType++) {
+      var strengthsWeaknesses = strengthsWeaknessesTable[swType];
+      if (!strengthsWeaknesses) continue;
+      var swName = growthTable[swType] ? growthTable[swType].name : ENNEAGRAM_TYPE_NAMES[swType];
+      html += emailGuideCard_(
+        swType + "번 · " + swName,
+        swType === selectedType ? "나의 최종 유형" : strengthsWeaknesses.center + " 중심",
+        swType === selectedType,
+        emailKeyValueTable_([
+          ["힘의 중심", strengthsWeaknesses.center],
+          ["강점", joinListText_(strengthsWeaknesses.strengths)],
+          ["약점", joinListText_(strengthsWeaknesses.weaknesses)],
+        ])
+      );
+    }
+  }
+
+  if (Object.keys(wingDetails).length || wingIntro.length) {
+    html += emailSectionTitle_("WING", "에니어그램의 날개");
+    html += emailParagraphs_(wingIntro);
+    for (var wingType = 1; wingType <= 9; wingType++) {
+      var wings = wingDetails[wingType] || [];
+      for (var wingIndex = 0; wingIndex < wings.length; wingIndex++) {
+        var isSelectedWing = wings[wingIndex].code === result.wingLabel;
+        html += emailGuideCard_(
+          wings[wingIndex].code + " · " + wings[wingIndex].nickname,
+          isSelectedWing ? "나의 날개" : wingType + "번 유형의 날개",
+          isSelectedWing,
+          emailListHtml_(wings[wingIndex].points)
+        );
+      }
+    }
+  }
+
+  html += '<p style="margin:34px 0 0;padding-top:18px;border-top:1px solid #d5cbc3;color:#776b63;font-size:11px;line-height:1.7;">이 결과는 자기이해와 성장을 위한 참고 자료입니다. 현재의 상황과 경험에 따라 표현 방식은 달라질 수 있습니다.</p>';
+  html += '</td></tr></table></div>';
+  return html;
+}
+
+function buildResultEmailText_(name, groupName, result) {
+  var guide = result.guide || {};
+  var selectedType = Number(result.type);
+  var growthTable = guide.growthTable || {};
+  var centers = Array.isArray(guide.centers) ? guide.centers : [];
+  var typeDescriptions = guide.typeDescriptions || {};
+  var strengthsWeaknessesTable = guide.strengthsWeaknessesTable || {};
+  var wingDetails = guide.wingDetails || {};
+  var lines = [
+    name + "님의 에니어그램 검사 결과입니다.",
+    "",
+    "소속: " + groupName,
+    "유형: " + result.type + "번 - " + result.typeName,
+    "힘의 중심: " + result.center,
+    "날개: " + result.wingLabel + " (" + result.wingName + ")",
+    "분열(스트레스) 방향: " + result.stress + "번 - " + result.stressName,
+    "통합(성장) 방향: " + result.growth + "번 - " + result.growthName,
+    "",
+    "[유형별 점수]",
+  ];
+  for (var type = 1; type <= 9; type++) {
+    lines.push(type + "번 " + ENNEAGRAM_TYPE_NAMES[type] + ": " + Number((result.scores || {})[type] || 0) + "점");
+  }
+  if (Array.isArray(guide.integrationIntro)) {
+    lines.push("", "[분열과 통합 안내]");
+    lines = lines.concat(guide.integrationIntro);
+  }
+  for (var growthType = 1; growthType <= 9; growthType++) {
+    var growth = growthTable[growthType];
+    if (!growth) continue;
+    lines.push("", "[분열과 통합 · " + growthType + "번 " + growth.name + (growthType === selectedType ? " · 나의 최종 유형" : "") + "]", "심리적 기능: " + growth.psychFunction, "회피: " + growth.avoidance, "함정: " + growth.trap, "약점(분열): " + growth.weakness, "강점(통합): " + growth.strength, "성장 전략: " + joinListText_(growth.strategies), "좌우명: " + growth.motto);
+  }
+  for (var centerIndex = 0; centerIndex < centers.length; centerIndex++) {
+    var center = centers[centerIndex];
+    var isSelectedCenter = (center.types || []).indexOf(selectedType) !== -1;
+    lines.push("", "[힘의 중심 · " + center.key + (isSelectedCenter ? " · 나의 힘의 중심" : "") + "]", center.desc, "감정: " + center.emotion, "관심: " + center.interest, "상황 파악: " + center.situationAwareness, "의사 결정: " + center.decision, "판단 양식: " + center.judgment, "신체 발달: " + center.bodyDevelopment, "지능: " + center.intelligence);
+  }
+  for (var descriptionType = 1; descriptionType <= 9; descriptionType++) {
+    var description = typeDescriptions[descriptionType];
+    if (!description) continue;
+    lines.push("", "[" + descriptionType + "번 유형 설명" + (descriptionType === selectedType ? " · 나의 최종 유형" : "") + "]", description.tagline, description.body, "주의할 점: " + description.caution);
+  }
+  for (var swType = 1; swType <= 9; swType++) {
+    var strengthsWeaknesses = strengthsWeaknessesTable[swType];
+    if (!strengthsWeaknesses) continue;
+    lines.push("", "[" + swType + "번 강점과 약점" + (swType === selectedType ? " · 나의 최종 유형" : "") + "]", "힘의 중심: " + strengthsWeaknesses.center, "강점: " + joinListText_(strengthsWeaknesses.strengths), "약점: " + joinListText_(strengthsWeaknesses.weaknesses));
+  }
+  if (Array.isArray(guide.wingIntro)) {
+    lines.push("", "[날개 안내]");
+    lines = lines.concat(guide.wingIntro);
+  }
+  for (var wingType = 1; wingType <= 9; wingType++) {
+    var wings = wingDetails[wingType] || [];
+    for (var wingIndex = 0; wingIndex < wings.length; wingIndex++) {
+      lines.push("", "[" + wings[wingIndex].code + " · " + wings[wingIndex].nickname + (wings[wingIndex].code === result.wingLabel ? " · 나의 날개" : "") + "]", joinListText_(wings[wingIndex].points));
+    }
+  }
+  return lines.join("\n");
+}
+
+function buildScoreTableHtml_(result) {
+  var scores = result.scores || {};
+  var selectedType = Number(result.type);
+  var html = '<table role="presentation" class="er-score" width="100%" cellspacing="0" cellpadding="0">';
+  html += '<tr><th>유형</th><th>이름</th><th style="text-align:right;">점수</th></tr>';
+  for (var type = 1; type <= 9; type++) {
+    var highlighted = type === selectedType;
+    var cellClass = highlighted ? ' class="er-selected"' : "";
+    html += '<tr><td' + cellClass + '>' + type + '번' + (highlighted ? " · 최종 유형" : "") + '</td><td' + cellClass + '>' + escapeHtml_(ENNEAGRAM_TYPE_NAMES[type]) + '</td><td' + cellClass + ' style="text-align:right;">' + Number(scores[type] || 0) + '점</td></tr>';
+  }
+  html += '</table>';
+  return html;
+}
+
+function emailSectionTitle_(english, korean) {
+  return '<div style="margin:32px 0 12px;padding-bottom:9px;border-bottom:1px solid #b4a9a1;"><div style="color:#8f1f26;font-size:9px;font-weight:700;letter-spacing:1.5px;">' + escapeHtml_(english) + '</div><h2 style="margin:5px 0 0;color:#171310;font-size:21px;line-height:1.4;">' + escapeHtml_(korean) + '</h2></div>';
+}
+
+function emailGuideCard_(title, label, highlighted, bodyHtml) {
+  var html = '<div class="er-card' + (highlighted ? " er-selected" : "") + '">';
+  html += '<div class="er-card-head">';
+  html += '<div class="er-card-label">' + escapeHtml_(label) + '</div>';
+  html += '<div class="er-card-title">' + escapeHtml_(title) + '</div>';
+  html += '</div>' + bodyHtml + '</div>';
+  return html;
+}
+
+function emailKeyValueTable_(rows) {
+  var html = '<table role="presentation" class="er-kv" width="100%" cellspacing="0" cellpadding="0">';
+  for (var i = 0; i < rows.length; i++) {
+    if (rows[i][1] == null || String(rows[i][1]) === "") continue;
+    html += '<tr><th>' + escapeHtml_(rows[i][0]) + '</th><td>' + escapeHtml_(rows[i][1]) + '</td></tr>';
+  }
+  html += '</table>';
+  return html;
+}
+
+function emailParagraphs_(paragraphs) {
+  var html = "";
+  for (var i = 0; i < paragraphs.length; i++) {
+    html += '<p style="margin:0 0 10px;color:#615751;font-size:12px;line-height:1.8;">' + escapeHtml_(paragraphs[i]) + '</p>';
+  }
+  return html;
+}
+
+function emailListHtml_(items) {
+  if (!Array.isArray(items) || items.length === 0) return "";
+  var html = '<ul class="er-list">';
+  for (var i = 0; i < items.length; i++) {
+    html += '<li>' + escapeHtml_(items[i]) + '</li>';
+  }
+  return html + '</ul>';
+}
+
+function joinListText_(items) {
+  return Array.isArray(items) ? items.join("\n• ").replace(/^/, "• ") : String(items || "");
+}
+
+function escapeHtml_(value) {
+  return String(value == null ? "" : value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 function hashSecret_(value) {

@@ -1,5 +1,14 @@
 import { QUESTIONS } from "../data/questions.js";
 import { TYPE_INFO, CENTER_MAP, STRESS_MAP, GROWTH_MAP, TYPE_ORDER } from "../data/enneagramInfo.js";
+import {
+  INTEGRATION_DISINTEGRATION_INTRO,
+  GROWTH_TABLE,
+  CENTER_DETAILS,
+  TYPE_LONG_DESC,
+  STRENGTHS_WEAKNESSES,
+  WING_INTRO,
+  WING_DETAILS,
+} from "../data/enneagramDetails.js";
 
 // answers: { [questionId]: 1~5 }
 export function computeResult(answers) {
@@ -32,9 +41,10 @@ export function isComplete(answers) {
 
 // 시트 기록 / 이메일 전송을 위해 유형 이름까지 붙여 직렬화 가능한 형태로 변환
 export function describeResult(result) {
+  const type = Number(result.type);
   return {
-    type: result.type,
-    typeName: TYPE_INFO[result.type].name,
+    type,
+    typeName: TYPE_INFO[type].name,
     center: result.center,
     wing: result.wing,
     wingName: TYPE_INFO[result.wing].name,
@@ -44,6 +54,15 @@ export function describeResult(result) {
     growth: result.growth,
     growthName: TYPE_INFO[result.growth].name,
     scores: result.scores,
+    guide: {
+      integrationIntro: INTEGRATION_DISINTEGRATION_INTRO,
+      growthTable: GROWTH_TABLE,
+      centers: CENTER_DETAILS,
+      typeDescriptions: TYPE_LONG_DESC,
+      strengthsWeaknessesTable: STRENGTHS_WEAKNESSES,
+      wingIntro: WING_INTRO,
+      wingDetails: WING_DETAILS,
+    },
   };
 }
 

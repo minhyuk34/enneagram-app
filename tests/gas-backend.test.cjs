@@ -69,7 +69,60 @@ class MockSpreadsheet {
 const spreadsheet = new MockSpreadsheet();
 const properties = new Map([["ADMIN_PASSWORD", "admin-password"]]);
 const cache = new Map();
+const sentEmails = [];
+const builtCharts = [];
 let uuidIndex = 0;
+
+function chainableChartBuilder() {
+  const state = {};
+  const builder = {
+    setDataTable(value) {
+      state.data = value;
+      return this;
+    },
+    setDimensions(width, height) {
+      state.dimensions = [width, height];
+      return this;
+    },
+    setTitle(value) {
+      state.title = value;
+      return this;
+    },
+    setXAxisTitle(value) {
+      state.xAxisTitle = value;
+      return this;
+    },
+    setYAxisTitle(value) {
+      state.yAxisTitle = value;
+      return this;
+    },
+    setRange(min, max) {
+      state.range = [min, max];
+      return this;
+    },
+    setColors(value) {
+      state.colors = value;
+      return this;
+    },
+    setOption(key, value) {
+      state[key] = value;
+      return this;
+    },
+    build() {
+      builtCharts.push(state);
+      return {
+        getAs: () => ({
+          name: "",
+          setName(name) {
+            this.name = name;
+            return this;
+          },
+        }),
+      };
+    },
+  };
+  return builder;
+}
 
 const context = {
   console,
@@ -81,7 +134,26 @@ const context = {
   Boolean,
   Error,
   Logger: { log() {} },
-  MailApp: { sendEmail() {} },
+  MailApp: { sendEmail: (message) => sentEmails.push(message) },
+  Charts: {
+    ColumnType: { STRING: "string", NUMBER: "number" },
+    newDataTable: () => {
+      const columns = [];
+      const rows = [];
+      return {
+        addColumn(type, label) {
+          columns.push([type, label]);
+          return this;
+        },
+        addRow(row) {
+          rows.push(row);
+          return this;
+        },
+        build: () => ({ columns, rows }),
+      };
+    },
+    newLineChart: chainableChartBuilder,
+  },
   LockService: {
     getScriptLock: () => ({ waitLock() {}, releaseLock() {} }),
   },
@@ -181,10 +253,114 @@ const submitted = post({
     stressName: "탐구자",
     growth: 2,
     growthName: "조력가",
-    scores: { 8: 42 },
+    scores: { 1: 20, 2: 21, 3: 22, 4: 23, 5: 24, 6: 25, 7: 26, 8: 42, 9: 27 },
+    guide: {
+      integrationIntro: ["통합과 분열 안내"],
+      growthTable: {
+        1: {
+          name: "개혁가",
+          psychFunction: "합리성",
+          avoidance: "성냄",
+          trap: "완벽",
+          weakness: "분노",
+          strength: "침착",
+          strategies: ["너그럽게 대하기"],
+          motto: "사랑할 시간을 만든다",
+        },
+        8: {
+          name: "지도자",
+          psychFunction: "본능",
+          avoidance: "나약함",
+          trap: "정의",
+          weakness: "욕망",
+          strength: "적절한 힘",
+          strategies: ["경청하기"],
+          motto: "힘은 보호를 위해 쓴다",
+        },
+      },
+      centers: [
+        {
+          key: "가슴",
+          types: [2, 3, 4],
+          desc: "가슴 중심 설명",
+          emotion: "수치심",
+          interest: "관계",
+          situationAwareness: "감정적 파악",
+          decision: "관계에 따라 결정",
+          judgment: "감정",
+          bodyDevelopment: "순환기",
+          intelligence: "감성지능",
+        },
+        {
+          key: "장",
+          types: [8, 9, 1],
+          desc: "장 중심 설명",
+          emotion: "분노",
+          interest: "힘과 정의",
+          situationAwareness: "본능적 파악",
+          decision: "즉시 결정",
+          judgment: "직관",
+          bodyDevelopment: "소화기",
+          intelligence: "신체지능",
+        },
+      ],
+      typeDescriptions: {
+        1: {
+          tagline: "원칙적인 유형",
+          body: "개혁가 상세 설명",
+          caution: "완벽주의를 주의한다",
+        },
+        8: {
+          tagline: "힘 있고 통솔하는 유형",
+          body: "도전자 상세 설명",
+          caution: "화를 조절한다",
+        },
+      },
+      strengthsWeaknessesTable: {
+        1: {
+          center: "장",
+          strengths: ["원칙적이다"],
+          weaknesses: ["비판적이다"],
+        },
+        8: {
+          center: "장",
+          strengths: ["용감하다"],
+          weaknesses: ["통제하려 한다"],
+        },
+      },
+      wingIntro: ["날개 안내"],
+      wingDetails: {
+        1: [
+          { code: "1w9", nickname: "이상주의자", points: ["차분하다"] },
+          { code: "1w2", nickname: "변호자", points: ["사람을 돕는다"] },
+        ],
+        8: [
+          { code: "8w7", nickname: "독립자", points: ["행동력이 강하다"] },
+          { code: "8w9", nickname: "곰", points: ["차분하다"] },
+        ],
+      },
+    },
   },
 });
 assert.equal(submitted.ok, true);
+assert.equal(sentEmails.length, 1);
+assert.equal(sentEmails[0].to, "person@example.com");
+assert.match(sentEmails[0].subject, /8번 유형/);
+assert.match(sentEmails[0].body, /도전자 상세 설명/);
+assert.match(sentEmails[0].htmlBody, /cid:scoreChart/);
+assert.match(sentEmails[0].htmlBody, /SCORE PROFILE/);
+assert.match(sentEmails[0].htmlBody, /장 중심 설명/);
+assert.match(sentEmails[0].htmlBody, /가슴 중심 설명/);
+assert.match(sentEmails[0].htmlBody, /경청하기/);
+assert.match(sentEmails[0].htmlBody, /개혁가 상세 설명/);
+assert.match(sentEmails[0].htmlBody, /1w9 · 이상주의자/);
+assert.match(sentEmails[0].htmlBody, /8w7 · 독립자/);
+assert.match(sentEmails[0].htmlBody, /나의 날개/);
+assert.match(sentEmails[0].htmlBody, /최종 유형/);
+assert.equal(sentEmails[0].inlineImages.scoreChart.name, "enneagram-score-chart.png");
+assert.equal(builtCharts[0].data.rows.length, 9);
+assert.deepEqual(Array.from(builtCharts[0].data.rows[7]), ["8번", 42, 42]);
+assert.equal(context.escapeHtml_("<script>alert('x')</script>"), "&lt;script&gt;alert(&#39;x&#39;)&lt;/script&gt;");
 
 const passwordChanged = post({
   action: "adminUpdateGroup",

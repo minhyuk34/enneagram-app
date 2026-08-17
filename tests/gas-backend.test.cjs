@@ -384,7 +384,7 @@ const historyOnly = post({
 });
 assert.equal(historyOnly.canTest, false);
 assert.equal(historyOnly.records.length, 1);
-assert.equal(historyOnly.records[0].wingLabel, "8w7");
+assert.equal(historyOnly.records[0].wingLabel, "8w9");
 
 const groupClosed = post({
   action: "adminUpdateGroup",
@@ -453,5 +453,74 @@ assert.equal(dashboard.records[0].groupId, groupId);
 assert.equal(dashboard.records[0].center, "장(본능) 중심");
 assert.equal(Object.hasOwn(dashboard.groups[0], "accessCodeHash"), false);
 assert.notEqual(spreadsheet.getSheetByName("집단").rows[1][2], "new-class-code");
+
+const tiedSubmission = post({
+  action: "submit",
+  name: "공동일위",
+  email: "tie@example.com",
+  age: 28,
+  birthYear: 1997,
+  groupId,
+  accessCode: "new-class-code",
+  result: {
+    type: 2,
+    typeName: "조력가",
+    scores: { 1: 18, 2: 42, 3: 20, 4: 25, 5: 21, 6: 24, 7: 28, 8: 42, 9: 19 },
+  },
+});
+assert.equal(tiedSubmission.ok, true);
+assert.match(sentEmails.at(-1).subject, /공동 1위 2·8번/);
+assert.deepEqual(Array.from(builtCharts.at(-1).data.rows[1]), ["2번", 42, 42]);
+assert.deepEqual(Array.from(builtCharts.at(-1).data.rows[7]), ["8번", 42, 42]);
+
+const unresolvedTieLogin = post({
+  action: "participantLogin",
+  email: "tie@example.com",
+  groupId,
+  accessCode: "wrong-current-code",
+});
+assert.equal(unresolvedTieLogin.canTest, false);
+assert.ok(unresolvedTieLogin.selectionToken);
+assert.deepEqual(Array.from(unresolvedTieLogin.records[0].topTypes), [2, 8]);
+assert.equal(unresolvedTieLogin.records[0].selectedType, null);
+
+const deferredTieLogin = post({
+  action: "participantLogin",
+  email: "tie@example.com",
+  groupId,
+  accessCode: "wrong-current-code",
+});
+assert.equal(deferredTieLogin.records[0].selectedType, null);
+
+const invalidTieSelection = post({
+  action: "selectResultType",
+  selectionToken: unresolvedTieLogin.selectionToken,
+  recordId: unresolvedTieLogin.records[0].recordId,
+  type: 3,
+});
+assert.equal(invalidTieSelection.ok, false);
+assert.equal(invalidTieSelection.error, "invalid_selected_type");
+
+const selectedTie = post({
+  action: "selectResultType",
+  selectionToken: unresolvedTieLogin.selectionToken,
+  recordId: unresolvedTieLogin.records[0].recordId,
+  type: 8,
+});
+assert.equal(selectedTie.ok, true);
+assert.equal(selectedTie.record.selectedType, 8);
+assert.equal(selectedTie.record.type, 8);
+assert.equal(selectedTie.record.typeName, "도전자");
+assert.equal(selectedTie.record.center, "장(본능) 중심");
+assert.equal(selectedTie.record.wingLabel, "8w7");
+
+const resolvedTieLogin = post({
+  action: "participantLogin",
+  email: "tie@example.com",
+  groupId,
+  accessCode: "wrong-current-code",
+});
+assert.equal(resolvedTieLogin.records[0].selectedType, 8);
+assert.deepEqual(Array.from(resolvedTieLogin.records[0].topTypes), [2, 8]);
 
 console.log("GAS backend authorization scenarios passed");

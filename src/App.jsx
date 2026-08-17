@@ -4,7 +4,7 @@ import { TYPE_INFO } from "./data/enneagramInfo";
 import { computeResult, describeResult, recordToResult } from "./utils/scoring";
 import { calcManAge, MIN_BIRTH_YEAR, MAX_BIRTH_YEAR } from "./utils/age";
 import { MAX_RECORDS_PER_EMAIL } from "./config";
-import { listGroups, participantLogin, submitResult } from "./api/gas";
+import { listGroups, participantLogin, selectResultType, submitResult } from "./api/gas";
 import ScoreChart from "./components/ScoreChart";
 import EnneagramGuide from "./components/EnneagramGuide";
 import "./App.css";
@@ -23,6 +23,9 @@ const ERROR_MESSAGES = {
   admin_not_configured: "관리자 설정이 아직 완료되지 않았습니다.",
   group_not_found: "선택한 집단은 현재 검사를 받을 수 없습니다.",
   invalid_access_code: "검사 비밀번호가 올바르지 않습니다.",
+  participant_session_expired: "로그인 시간이 만료되었습니다. 처음 화면에서 다시 로그인해 주세요.",
+  invalid_selected_type: "공동 1위로 나온 번호 중에서 선택해 주세요.",
+  type_already_selected: "이 기록은 이미 유형 선택이 완료되었습니다.",
   GAS_NOT_CONFIGURED: "검사 서버가 연결되지 않았습니다.",
 };
 
@@ -79,6 +82,68 @@ function formatDate(ts) {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+function getTopTypes(recordOrResult) {
+  const selectedType = Number(recordOrResult.selectedType);
+  if (selectedType) return [selectedType];
+  if (Array.isArray(recordOrResult.topTypes) && recordOrResult.topTypes.length) {
+    return recordOrResult.topTypes.map(Number);
+  }
+  return [Number(recordOrResult.type)];
+}
+
+function needsTypeSelection(record) {
+  return Array.isArray(record.topTypes) && record.topTypes.length > 1 && !Number(record.selectedType);
+}
+
+function TieTypeSelectionModal({ record, saving, error, onSelect, onDefer }) {
+  const topTypes = record.topTypes.map(Number);
+  const topScore = Math.max(...topTypes.map((type) => Number(record.scores?.[type]) || 0));
+
+  return (
+    <div className="type-choice-backdrop" role="presentation">
+      <section
+        className="type-choice-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="type-choice-title"
+      >
+        <p className="eyebrow">JOINT HIGHEST SCORE</p>
+        <h2 className="type-choice-title" id="type-choice-title">
+          공동 1위 중 나의 유형을 선택해 주세요.
+        </h2>
+        <p className="type-choice-description">
+          {formatDate(record.timestamp)} 검사에서 아래 유형들이 모두 {topScore}점으로
+          공동 1위였습니다. 선택하면 이후에는 정한 번호로 결과가 표시됩니다.
+        </p>
+        <div className="type-choice-options">
+          {topTypes.map((type) => (
+            <button
+              className="type-choice-option"
+              type="button"
+              key={type}
+              disabled={saving}
+              onClick={() => onSelect(type)}
+            >
+              <span className="type-choice-number">{type}</span>
+              <span>
+                <strong>{type}번 · {TYPE_INFO[type].name}</strong>
+                <small>{TYPE_INFO[type].desc}</small>
+              </span>
+            </button>
+          ))}
+        </div>
+        {error && <p className="type-choice-error" role="alert">{error}</p>}
+        <button className="btn type-choice-defer" type="button" onClick={onDefer} disabled={saving}>
+          아직 선택 안함
+        </button>
+        <p className="type-choice-note">
+          지금 정하지 않아도 괜찮습니다. 선택하지 않으면 다음 로그인 때 다시 안내합니다.
+        </p>
+      </section>
+    </div>
+  );
 }
 
 function LoginScreen({
@@ -284,16 +349,18 @@ function HistoryScreen({
       )}
 
       <div className="history-list">
-        {sorted.map((rec, idx) => (
+        {sorted.map((rec) => (
           <button
-            key={idx}
+            key={rec.recordId || rec.timestamp}
             type="button"
             className="history-item"
             onClick={() => onSelect(rec)}
           >
             <span className="history-date">{formatDate(rec.timestamp)}</span>
             <span className="history-type">
-              {rec.type}번 · {rec.typeName}
+              {needsTypeSelection(rec)
+                ? `공동 1위 · ${rec.topTypes.map((type) => `${type}번`).join(" · ")}`
+                : `${rec.type}번 · ${rec.typeName}`}
             </span>
             <span className="history-arrow" aria-hidden="true">↗</span>
           </button>
@@ -410,6 +477,8 @@ function ResultScreen({
   onRestart,
   onViewHistory,
 }) {
+  const highlightTypes = getTopTypes(result);
+  const hasUnresolvedTie = highlightTypes.length > 1 && !Number(result.selectedType);
   const info = TYPE_INFO[result.type];
   const wingInfo = TYPE_INFO[result.wing];
   const stressInfo = TYPE_INFO[result.stress];
@@ -435,13 +504,30 @@ function ResultScreen({
         )}
 
         <div className="result-hero">
-          <div className="result-type-number" aria-hidden="true">{result.type}</div>
+          <div className={`result-type-number${hasUnresolvedTie ? " is-multiple" : ""}`} aria-hidden="true">
+            {highlightTypes.map((type) => <span key={type}>{type}</span>)}
+          </div>
           <div className="result-hero-copy">
             <p className="eyebrow">YOUR ENNEAGRAM PORTRAIT</p>
-            <h1 className="title">{result.type}번 유형 · {info.name}</h1>
-            <p className="lead">{info.desc}</p>
+            <h1 className="title">
+              {hasUnresolvedTie
+                ? `공동 1위 · ${highlightTypes.map((type) => `${type}번 ${TYPE_INFO[type].name}`).join(" · ")}`
+                : `${result.type}번 유형 · ${info.name}`}
+            </h1>
+            <p className="lead">
+              {hasUnresolvedTie
+                ? "동일한 최고 점수를 받은 유형을 모두 강조했습니다. 다음 로그인 때 가장 자신과 가깝다고 느끼는 유형을 선택할 수 있습니다."
+                : info.desc}
+            </p>
           </div>
         </div>
+
+        {hasUnresolvedTie && (
+          <div className="tie-result-notice">
+            아래 힘의 중심·날개·분열·통합 방향은 공동 1위 중 {result.type}번을 임시
+            기준으로 보여줍니다. 유형을 선택하면 선택한 번호 기준으로 다시 표시됩니다.
+          </div>
+        )}
 
         <div className="stat-grid">
           <div className="stat">
@@ -473,7 +559,7 @@ function ResultScreen({
 
         <p className="eyebrow result-section-kicker">SCORE PROFILE</p>
         <h2 className="section-title">유형별 점수</h2>
-        <ScoreChart scores={result.scores} highlightType={result.type} />
+        <ScoreChart scores={result.scores} highlightTypes={highlightTypes} />
 
         <p className="notice-banner">
           안내: 같은 이메일로는 최대 {MAX_RECORDS_PER_EMAIL}회까지 검사 기록이
@@ -481,7 +567,7 @@ function ResultScreen({
           기록이 자동으로 삭제됩니다.
         </p>
 
-        <EnneagramGuide highlightType={result.type} />
+        <EnneagramGuide highlightTypes={highlightTypes} />
       </div>
 
       <div className="result-actions no-print">
@@ -516,6 +602,10 @@ function App() {
   const [isExisting, setIsExisting] = useState(false);
   const [loginLoading, setLoginLoading] = useState(false);
   const [submitStatus, setSubmitStatus] = useState("idle");
+  const [selectionToken, setSelectionToken] = useState("");
+  const [pendingTypeChoices, setPendingTypeChoices] = useState([]);
+  const [typeChoiceSaving, setTypeChoiceSaving] = useState(false);
+  const [typeChoiceError, setTypeChoiceError] = useState("");
 
   async function refreshGroups() {
     setGroupsLoading(true);
@@ -550,6 +640,13 @@ function App() {
       setRecords(recs);
       setCanTest(Boolean(res.canTest));
       setAccessError(res.accessError || null);
+      setSelectionToken(res.selectionToken || "");
+      setPendingTypeChoices(
+        recs
+          .filter(needsTypeSelection)
+          .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
+      );
+      setTypeChoiceError("");
 
       if (recs.length > 0) {
         setScreen("history");
@@ -582,6 +679,33 @@ function App() {
     setScreen("quiz");
   }
 
+  async function handleSelectTiedType(type) {
+    const pendingRecord = pendingTypeChoices[0];
+    if (!pendingRecord || !selectionToken || typeChoiceSaving) return;
+    setTypeChoiceSaving(true);
+    setTypeChoiceError("");
+    try {
+      const res = await selectResultType(selectionToken, pendingRecord.recordId, type);
+      const updatedRecord = res.record;
+      setRecords((current) => current.map((record) =>
+        record.recordId === updatedRecord.recordId ? updatedRecord : record
+      ));
+      setPendingTypeChoices((current) => current.slice(1));
+    } catch (error) {
+      setTypeChoiceError(
+        getErrorMessage(error, "유형을 저장하지 못했습니다. 잠시 후 다시 시도해 주세요.")
+      );
+    } finally {
+      setTypeChoiceSaving(false);
+    }
+  }
+
+  function handleDeferTypeChoice() {
+    if (typeChoiceSaving) return;
+    setPendingTypeChoices([]);
+    setTypeChoiceError("");
+  }
+
   async function handleQuizFinish() {
     const r = computeResult(answers);
     setResult(r);
@@ -609,6 +733,7 @@ function App() {
       setRecords(res.records || []);
       setCanTest(Boolean(res.canTest));
       setAccessError(res.accessError || null);
+      setSelectionToken(res.selectionToken || selectionToken);
       setScreen("history");
     } catch {
       setScreen("history");
@@ -627,6 +752,10 @@ function App() {
     setResult(null);
     setIsExisting(false);
     setSubmitStatus("idle");
+    setSelectionToken("");
+    setPendingTypeChoices([]);
+    setTypeChoiceSaving(false);
+    setTypeChoiceError("");
     setScreen("login");
   }
 
@@ -686,6 +815,15 @@ function App() {
           />
         )}
       </main>
+      {pendingTypeChoices.length > 0 && (
+        <TieTypeSelectionModal
+          record={pendingTypeChoices[0]}
+          saving={typeChoiceSaving}
+          error={typeChoiceError}
+          onSelect={handleSelectTiedType}
+          onDefer={handleDeferTypeChoice}
+        />
+      )}
       <footer className="site-footer">
         <span>ENNEAGRAM PERSONALITY PROFILE</span>
         <span className="footer-links">

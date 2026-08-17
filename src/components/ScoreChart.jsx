@@ -23,7 +23,14 @@ function yPos(score) {
   return MARGIN.top + PLOT_H - (score / MAX_Y) * PLOT_H;
 }
 
-export default function ScoreChart({ scores, highlightType }) {
+export default function ScoreChart({ scores, highlightType, highlightTypes }) {
+  const highlightedTypes = new Set(
+    (Array.isArray(highlightTypes) && highlightTypes.length
+      ? highlightTypes
+      : [highlightType]
+    ).map(Number)
+  );
+  const isHighlighted = (type) => highlightedTypes.has(Number(type));
   const points = Array.from({ length: 9 }, (_, i) => {
     const type = i + 1;
     const score = Number(scores[type]) || 0;
@@ -114,8 +121,8 @@ export default function ScoreChart({ scores, highlightType }) {
             key={`pt-${p.type}`}
             cx={p.x}
             cy={p.y}
-            r={p.type === highlightType ? 6 : 4}
-            fill={p.type === highlightType ? "#8f1f26" : "#171310"}
+            r={isHighlighted(p.type) ? 6 : 4}
+            fill={isHighlighted(p.type) ? "#8f1f26" : "#171310"}
           />
         ))}
         {points.map((p) => (
@@ -124,7 +131,7 @@ export default function ScoreChart({ scores, highlightType }) {
             x={p.x}
             y={p.y - 12}
             textAnchor="middle"
-            className={`score-chart-point-value${p.type === highlightType ? " is-highlighted" : ""}`}
+            className={`score-chart-point-value${isHighlighted(p.type) ? " is-highlighted" : ""}`}
           >
             {p.score}
           </text>
@@ -140,7 +147,7 @@ export default function ScoreChart({ scores, highlightType }) {
         </text>
         {points.map((p) => (
           <g key={`x-${p.type}`}>
-            {p.type === highlightType && (
+            {isHighlighted(p.type) && (
               <circle
                 cx={p.x}
                 cy={MARGIN.top + PLOT_H + 15}
@@ -153,7 +160,7 @@ export default function ScoreChart({ scores, highlightType }) {
               x={p.x}
               y={MARGIN.top + PLOT_H + 20}
               textAnchor="middle"
-              className={`score-chart-x-number${p.type === highlightType ? " is-highlighted" : ""}`}
+              className={`score-chart-x-number${isHighlighted(p.type) ? " is-highlighted" : ""}`}
             >
               {p.type}
             </text>
@@ -161,7 +168,7 @@ export default function ScoreChart({ scores, highlightType }) {
               x={p.x}
               y={MARGIN.top + PLOT_H + 38}
               textAnchor="middle"
-              className={`score-chart-x-name${p.type === highlightType ? " is-highlighted" : ""}`}
+              className={`score-chart-x-name${isHighlighted(p.type) ? " is-highlighted" : ""}`}
             >
               {TYPE_INFO[p.type].name}
             </text>

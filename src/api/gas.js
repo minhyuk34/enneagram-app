@@ -36,6 +36,15 @@ export function participantLogin({ email, groupId, accessCode }) {
   return callGas({ action: "participantLogin", email, groupId, accessCode });
 }
 
+export function selectResultType(selectionToken, recordId, type) {
+  return callGas({
+    action: "selectResultType",
+    selectionToken,
+    recordId,
+    type,
+  });
+}
+
 // 과거 결과는 비밀번호가 바뀐 뒤에도 이메일 키로 다시 볼 수 있다.
 export function lookupByEmail(email) {
   return callGas({ action: "lookup", email });

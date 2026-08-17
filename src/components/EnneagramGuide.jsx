@@ -11,6 +11,10 @@ import "./EnneagramGuide.css";
 
 const TYPES = [1, 2, 3, 4, 5, 6, 7, 8, 9];
 
+function includesType(highlightTypes, type) {
+  return highlightTypes.includes(Number(type));
+}
+
 function GuideTableWrap({ label, children }) {
   return (
     <div className="guide-table-region">
@@ -24,7 +28,7 @@ function GuideTableWrap({ label, children }) {
   );
 }
 
-function IntegrationDisintegrationSection({ highlightType }) {
+function IntegrationDisintegrationSection({ highlightTypes }) {
   return (
     <section className="guide-section">
       <h3 className="guide-heading">1. 에니어그램의 분열과 통합</h3>
@@ -51,7 +55,7 @@ function IntegrationDisintegrationSection({ highlightType }) {
             {TYPES.map((t) => {
               const g = GROWTH_TABLE[t];
               return (
-                <tr key={t} className={t === highlightType ? "is-highlighted" : undefined}>
+                <tr key={t} className={includesType(highlightTypes, t) ? "is-highlighted" : undefined}>
                   <td className="guide-table-typecell">
                     {t}번 · {g.name}
                   </td>
@@ -78,7 +82,7 @@ function IntegrationDisintegrationSection({ highlightType }) {
   );
 }
 
-function CentersSection({ highlightType }) {
+function CentersSection({ highlightTypes }) {
   const rows = [
     ["설명", "desc"],
     ["감정", "emotion"],
@@ -89,9 +93,9 @@ function CentersSection({ highlightType }) {
     ["신체발달", "bodyDevelopment"],
     ["지능", "intelligence"],
   ];
-  const selectedCenter = CENTER_DETAILS.find((center) =>
-    center.types.includes(Number(highlightType))
-  )?.key;
+  const selectedCenters = CENTER_DETAILS
+    .filter((center) => center.types.some((type) => includesType(highlightTypes, type)))
+    .map((center) => center.key);
 
   return (
     <section className="guide-section">
@@ -104,10 +108,10 @@ function CentersSection({ highlightType }) {
               {CENTER_DETAILS.map((c) => (
                 <th
                   key={c.key}
-                  className={c.key === selectedCenter ? "is-highlighted-center" : undefined}
+                  className={selectedCenters.includes(c.key) ? "is-highlighted-center" : undefined}
                 >
-                  {c.key === selectedCenter && (
-                    <span className="guide-center-badge">나의 중심</span>
+                  {selectedCenters.includes(c.key) && (
+                    <span className="guide-center-badge">1위 유형의 중심</span>
                   )}
                   {c.key} ({c.types.join(", ")}유형)
                 </th>
@@ -121,7 +125,7 @@ function CentersSection({ highlightType }) {
                 {CENTER_DETAILS.map((c) => (
                   <td
                     key={c.key}
-                    className={c.key === selectedCenter ? "is-highlighted-center" : undefined}
+                    className={selectedCenters.includes(c.key) ? "is-highlighted-center" : undefined}
                   >
                     {c[key]}
                   </td>
@@ -135,7 +139,7 @@ function CentersSection({ highlightType }) {
   );
 }
 
-function TypeDescriptionsSection({ highlightType }) {
+function TypeDescriptionsSection({ highlightTypes }) {
   return (
     <section className="guide-section">
       <h3 className="guide-heading">3. 9가지 성격유형별 설명</h3>
@@ -144,7 +148,7 @@ function TypeDescriptionsSection({ highlightType }) {
           const d = TYPE_LONG_DESC[t];
           return (
             <div
-              className={`guide-type-card${t === highlightType ? " is-highlighted" : ""}`}
+              className={`guide-type-card${includesType(highlightTypes, t) ? " is-highlighted" : ""}`}
               key={t}
             >
               <p className="guide-type-card-title">
@@ -161,7 +165,7 @@ function TypeDescriptionsSection({ highlightType }) {
   );
 }
 
-function StrengthsWeaknessesSection({ highlightType }) {
+function StrengthsWeaknessesSection({ highlightTypes }) {
   return (
     <section className="guide-section">
       <h3 className="guide-heading">4. 에니어그램 성격유형별 강점과 약점</h3>
@@ -179,7 +183,7 @@ function StrengthsWeaknessesSection({ highlightType }) {
             {TYPES.map((t) => {
               const sw = STRENGTHS_WEAKNESSES[t];
               return (
-                <tr key={t} className={t === highlightType ? "is-highlighted" : undefined}>
+                <tr key={t} className={includesType(highlightTypes, t) ? "is-highlighted" : undefined}>
                   <td>{sw.center}</td>
                   <td className="guide-table-typecell">
                     {t}번 · {GROWTH_TABLE[t].name}
@@ -196,7 +200,7 @@ function StrengthsWeaknessesSection({ highlightType }) {
   );
 }
 
-function WingsSection({ highlightType }) {
+function WingsSection({ highlightTypes }) {
   return (
     <section className="guide-section">
       <h3 className="guide-heading">5. 에니어그램의 날개(Wing)</h3>
@@ -218,7 +222,7 @@ function WingsSection({ highlightType }) {
           <tbody>
             {TYPES.map((t) =>
               WING_DETAILS[t].map((w, i) => (
-                <tr key={w.code} className={t === highlightType ? "is-highlighted" : undefined}>
+                <tr key={w.code} className={includesType(highlightTypes, t) ? "is-highlighted" : undefined}>
                   {i === 0 && (
                     <td className="guide-table-typecell" rowSpan={2}>
                       {t}번 · {GROWTH_TABLE[t].name}
@@ -243,16 +247,19 @@ function WingsSection({ highlightType }) {
   );
 }
 
-export default function EnneagramGuide({ highlightType }) {
+export default function EnneagramGuide({ highlightType, highlightTypes }) {
+  const normalizedHighlightTypes = (
+    Array.isArray(highlightTypes) && highlightTypes.length ? highlightTypes : [highlightType]
+  ).map(Number);
   return (
     <details className="guide-details" open>
       <summary className="guide-summary">에니어그램 상세 가이드 (KEPTI)</summary>
       <div className="guide-body">
-        <IntegrationDisintegrationSection highlightType={highlightType} />
-        <CentersSection highlightType={highlightType} />
-        <TypeDescriptionsSection highlightType={highlightType} />
-        <StrengthsWeaknessesSection highlightType={highlightType} />
-        <WingsSection highlightType={highlightType} />
+        <IntegrationDisintegrationSection highlightTypes={normalizedHighlightTypes} />
+        <CentersSection highlightTypes={normalizedHighlightTypes} />
+        <TypeDescriptionsSection highlightTypes={normalizedHighlightTypes} />
+        <StrengthsWeaknessesSection highlightTypes={normalizedHighlightTypes} />
+        <WingsSection highlightTypes={normalizedHighlightTypes} />
       </div>
     </details>
   );

@@ -13,6 +13,7 @@ var RECORD_SHEET_NAME = "기록";
 var GROUP_SHEET_NAME = "집단";
 var MAX_RECORDS_PER_EMAIL = 5;
 var ADMIN_SESSION_SECONDS = 21600; // 6시간
+var PARTICIPANT_SESSION_SECONDS = 1800; // 유형 선택용 30분
 
 var ADMIN_PASSWORD_PROPERTY = "ADMIN_PASSWORD";
 var ADMIN_PASSWORD_HASH_PROPERTY = "ADMIN_PASSWORD_HASH";
@@ -24,6 +25,15 @@ var ENNEAGRAM_TYPE_NAMES = {
   6: "충성가", 7: "열정가", 8: "도전자", 9: "평화주의자",
 };
 
+var TYPE_ORDER = [2, 3, 4, 5, 6, 7, 8, 9, 1];
+var CENTER_MAP = {
+  1: "장(본능) 중심", 2: "가슴(감정) 중심", 3: "가슴(감정) 중심",
+  4: "가슴(감정) 중심", 5: "머리(사고) 중심", 6: "머리(사고) 중심",
+  7: "머리(사고) 중심", 8: "장(본능) 중심", 9: "장(본능) 중심",
+};
+var STRESS_MAP = { 1: 4, 2: 8, 3: 9, 4: 2, 5: 7, 6: 3, 7: 1, 8: 5, 9: 6 };
+var GROWTH_MAP = { 1: 7, 2: 4, 3: 6, 4: 1, 5: 8, 6: 9, 7: 5, 8: 2, 9: 3 };
+
 var RECORD_HEADER = [
   "타임스탬프", "이름", "만나이", "출생연도", "소속", "이메일",
   "유형", "유형명", "힘의중심",
@@ -31,6 +41,7 @@ var RECORD_HEADER = [
   "분열유형", "분열유형명",
   "통합유형", "통합유형명",
   "유형별점수(JSON)", "집단ID", "기록ID",
+  "공동1위유형(JSON)", "선택유형", "선택일",
 ];
 
 var GROUP_HEADER = [
@@ -56,6 +67,7 @@ function doPost(e) {
   try {
     if (data.action === "groups") return handleListGroups_();
     if (data.action === "participantLogin") return handleParticipantLogin_(data);
+    if (data.action === "selectResultType") return handleSelectResultType_(data);
     if (data.action === "lookup") return handleLookup_(data); // 이전 앱 호환
     if (data.action === "submit") return handleSubmit_(data);
     if (data.action === "adminLogin") return handleAdminLogin_(data);
@@ -104,6 +116,7 @@ function handleParticipantLogin_(data) {
 
   var records = listRecordsByEmail_(email);
   var access = verifyGroupAccess_(data.groupId, data.accessCode);
+  var selectionToken = createParticipantSession_(email);
 
   return jsonOutput({
     ok: true,
@@ -112,6 +125,7 @@ function handleParticipantLogin_(data) {
     accessError: access.ok ? null : access.error,
     group: access.ok ? publicGroup_(access.group) : null,
     maxRecords: MAX_RECORDS_PER_EMAIL,
+    selectionToken: selectionToken,
   });
 }
 
@@ -148,6 +162,11 @@ function handleSubmit_(data) {
 
     var sheet = getRecordSheet_();
     var recordId = "rec_" + Utilities.getUuid().replace(/-/g, "");
+    var scores = result.scores || {};
+    var topTypes = getTopTypesFromScores_(scores);
+    result = buildTypeResult_(scores, topTypes[0], result);
+    result.topTypes = topTypes;
+    var selectedType = topTypes.length === 1 ? topTypes[0] : "";
     sheet.appendRow([
       new Date(),
       name, age, birthYear, access.group.name, email,
@@ -155,7 +174,8 @@ function handleSubmit_(data) {
       result.wing, result.wingName, result.wingLabel,
       result.stress, result.stressName,
       result.growth, result.growthName,
-      JSON.stringify(result.scores || {}), access.group.id, recordId,
+      JSON.stringify(scores), access.group.id, recordId,
+      JSON.stringify(topTypes), selectedType, selectedType ? new Date() : "",
     ]);
 
     try {
@@ -171,6 +191,78 @@ function handleSubmit_(data) {
       maxRecords: MAX_RECORDS_PER_EMAIL,
       recordId: recordId,
     });
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function createParticipantSession_(email) {
+  var token = Utilities.getUuid().replace(/-/g, "") + Utilities.getUuid().replace(/-/g, "");
+  CacheService.getScriptCache().put(
+    "participant_session_" + token,
+    JSON.stringify({ email: normalizeEmail_(email), issuedAt: new Date().toISOString() }),
+    PARTICIPANT_SESSION_SECONDS
+  );
+  return token;
+}
+
+function requireParticipantSession_(token) {
+  var cleanToken = String(token || "");
+  if (!cleanToken) throw new Error("participant_auth_required");
+  var raw = CacheService.getScriptCache().get("participant_session_" + cleanToken);
+  if (!raw) throw new Error("participant_session_expired");
+  return JSON.parse(raw);
+}
+
+function handleSelectResultType_(data) {
+  var session = requireParticipantSession_(data.selectionToken);
+  var requestedType = Number(data.type);
+  var recordId = cleanText_(data.recordId);
+  if (!recordId) return jsonOutput({ ok: false, error: "record_required" });
+
+  var lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    var sheet = getRecordSheet_();
+    var values = sheet.getDataRange().getValues();
+    var rowNumber = 0;
+    var row = null;
+    for (var i = 1; i < values.length; i++) {
+      var currentId = values[i][18] || "legacy_row_" + (i + 1);
+      if (String(currentId) === recordId && normalizeEmail_(values[i][5]) === session.email) {
+        rowNumber = i + 1;
+        row = values[i];
+        break;
+      }
+    }
+    if (!row) return jsonOutput({ ok: false, error: "record_not_found" });
+
+    var scores = safeJsonParse_(row[16], {});
+    var topTypes = getTopTypesFromScores_(scores);
+    if (topTypes.length < 2 || topTypes.indexOf(requestedType) === -1) {
+      return jsonOutput({ ok: false, error: "invalid_selected_type" });
+    }
+    if (Number(row[20]) === requestedType) {
+      return jsonOutput({ ok: true, record: rowToRecord_(row, rowNumber) });
+    }
+    if (Number(row[20])) {
+      return jsonOutput({ ok: false, error: "type_already_selected" });
+    }
+
+    var canonical = buildTypeResult_(scores, requestedType, {});
+    sheet.getRange(rowNumber, 7, 1, 10).setValues([[
+      canonical.type, canonical.typeName, canonical.center,
+      canonical.wing, canonical.wingName, canonical.wingLabel,
+      canonical.stress, canonical.stressName,
+      canonical.growth, canonical.growthName,
+    ]]);
+    if (!row[18]) sheet.getRange(rowNumber, 19).setValue(recordId);
+    sheet.getRange(rowNumber, 20, 1, 3).setValues([[
+      JSON.stringify(topTypes), requestedType, new Date(),
+    ]]);
+
+    var updatedRow = sheet.getDataRange().getValues()[rowNumber - 1];
+    return jsonOutput({ ok: true, record: rowToRecord_(updatedRow, rowNumber) });
   } finally {
     lock.releaseLock();
   }
@@ -422,6 +514,13 @@ function listAllRecords_() {
 }
 
 function rowToRecord_(row, rowNumber) {
+  var scores = safeJsonParse_(row[16], {});
+  var computedTopTypes = getTopTypesFromScores_(scores);
+  var storedTopTypes = safeJsonParse_(row[19], []);
+  var topTypes = Array.isArray(storedTopTypes) && storedTopTypes.length
+    ? storedTopTypes.map(Number)
+    : computedTopTypes;
+  var selectedType = Number(row[20]) || (topTypes.length === 1 ? topTypes[0] : null);
   return {
     timestamp: row[0],
     name: row[1],
@@ -439,9 +538,52 @@ function rowToRecord_(row, rowNumber) {
     stressName: row[13],
     growth: row[14],
     growthName: row[15],
-    scores: safeJsonParse_(row[16], {}),
+    scores: scores,
     groupId: row[17] || "",
     recordId: row[18] || "legacy_row_" + rowNumber,
+    topTypes: topTypes,
+    selectedType: selectedType,
+    selectedAt: row[21] || null,
+  };
+}
+
+function getTopTypesFromScores_(scores) {
+  var maxScore = -Infinity;
+  var topTypes = [];
+  for (var i = 0; i < TYPE_ORDER.length; i++) {
+    var type = TYPE_ORDER[i];
+    var score = Number(scores[type] || 0);
+    if (score > maxScore) {
+      maxScore = score;
+      topTypes = [type];
+    } else if (score === maxScore) {
+      topTypes.push(type);
+    }
+  }
+  return topTypes;
+}
+
+function buildTypeResult_(scores, requestedType, source) {
+  var type = Number(requestedType);
+  if (!ENNEAGRAM_TYPE_NAMES[type]) throw new Error("invalid_result_type");
+  var left = type === 1 ? 9 : type - 1;
+  var right = type === 9 ? 1 : type + 1;
+  var wing = Number(scores[left] || 0) >= Number(scores[right] || 0) ? left : right;
+  var stress = STRESS_MAP[type];
+  var growth = GROWTH_MAP[type];
+  return {
+    type: type,
+    typeName: ENNEAGRAM_TYPE_NAMES[type],
+    center: CENTER_MAP[type],
+    wing: wing,
+    wingName: ENNEAGRAM_TYPE_NAMES[wing],
+    wingLabel: type + "w" + wing,
+    stress: stress,
+    stressName: ENNEAGRAM_TYPE_NAMES[stress],
+    growth: growth,
+    growthName: ENNEAGRAM_TYPE_NAMES[growth],
+    scores: scores,
+    guide: (source || {}).guide || {},
   };
 }
 
@@ -462,8 +604,20 @@ function enforceMaxRecords_(sheet, email, maxCount) {
   return matchingRows.length;
 }
 
+function getResultHighlightTypes_(result) {
+  if (Number(result.selectedType)) return [Number(result.selectedType)];
+  if (Array.isArray(result.topTypes) && result.topTypes.length) {
+    return result.topTypes.map(Number);
+  }
+  return getTopTypesFromScores_(result.scores || {});
+}
+
 function sendResultEmail_(name, email, groupName, result) {
-  var subject = "[에니어그램 검사 결과] " + name + "님 - " + result.type + "번 유형 (" + result.typeName + ")";
+  var highlightTypes = getResultHighlightTypes_(result);
+  var subjectResult = highlightTypes.length > 1
+    ? "공동 1위 " + highlightTypes.join("·") + "번"
+    : result.type + "번 유형 (" + result.typeName + ")";
+  var subject = "[에니어그램 검사 결과] " + name + "님 - " + subjectResult;
   var chartBlob = null;
   try {
     chartBlob = buildScoreChart_(result);
@@ -486,7 +640,7 @@ function sendResultEmail_(name, email, groupName, result) {
 
 function buildScoreChart_(result) {
   var scores = result.scores || {};
-  var selectedType = Number(result.type);
+  var highlightTypes = getResultHighlightTypes_(result);
   var data = Charts.newDataTable()
     .addColumn(Charts.ColumnType.STRING, "유형")
     .addColumn(Charts.ColumnType.NUMBER, "점수")
@@ -494,7 +648,7 @@ function buildScoreChart_(result) {
 
   for (var type = 1; type <= 9; type++) {
     var score = Number(scores[type] || 0);
-    data.addRow([type + "번", score, type === selectedType ? score : null]);
+    data.addRow([type + "번", score, highlightTypes.indexOf(type) !== -1 ? score : null]);
   }
 
   var chart = Charts.newLineChart()
@@ -523,6 +677,10 @@ function buildScoreChart_(result) {
 function buildResultEmailHtml_(name, groupName, result, hasChart) {
   var guide = result.guide || {};
   var selectedType = Number(result.type);
+  var highlightTypes = getResultHighlightTypes_(result);
+  var resultLabel = highlightTypes.length > 1
+    ? "공동 1위 · " + highlightTypes.map(function (type) { return type + "번 " + ENNEAGRAM_TYPE_NAMES[type]; }).join(" · ")
+    : result.type + "번 유형 · " + result.typeName;
   var growthTable = guide.growthTable || {};
   var centers = Array.isArray(guide.centers) ? guide.centers : [];
   var typeDescriptions = guide.typeDescriptions || {};
@@ -544,14 +702,14 @@ function buildResultEmailHtml_(name, groupName, result, hasChart) {
   html += '<tr><td style="padding:30px 28px;background:#8f1f26;color:#fffaf2;">';
   html += '<div style="font-size:11px;font-weight:700;letter-spacing:2px;">ENNEAGRAM PERSONALITY PROFILE</div>';
   html += '<h1 style="margin:12px 0 8px;font-size:30px;line-height:1.35;color:#fffaf2;">' + escapeHtml_(name) + '님의 검사 결과</h1>';
-  html += '<div style="font-size:17px;line-height:1.6;">' + escapeHtml_(result.type) + '번 유형 · ' + escapeHtml_(result.typeName) + '</div>';
+  html += '<div style="font-size:17px;line-height:1.6;">' + escapeHtml_(resultLabel) + '</div>';
   html += '</td></tr>';
   html += '<tr><td style="padding:28px;">';
 
   html += emailSectionTitle_("RESULT SUMMARY", "핵심 결과");
   html += emailKeyValueTable_([
     ["소속", groupName],
-    ["최종 유형", result.type + "번 · " + result.typeName],
+    [highlightTypes.length > 1 ? "공동 1위 유형" : "최종 유형", resultLabel],
     ["힘의 중심", result.center],
     ["날개", result.wingLabel + " · " + result.wingName],
     ["분열(스트레스) 방향", result.stress + "번 · " + result.stressName],
@@ -567,28 +725,28 @@ function buildResultEmailHtml_(name, groupName, result, hasChart) {
   if (Object.keys(growthTable).length || integrationIntro.length) {
     html += emailSectionTitle_("INTEGRATION & DISINTEGRATION", "분열과 통합");
     html += emailParagraphs_(integrationIntro);
-    html += buildGrowthGuideTableHtml_(growthTable, selectedType);
+    html += buildGrowthGuideTableHtml_(growthTable, highlightTypes);
   }
 
   if (centers.length) {
     html += emailSectionTitle_("CENTER OF INTELLIGENCE", "에니어그램 힘의 중심");
-    html += buildCentersGuideTableHtml_(centers, selectedType);
+    html += buildCentersGuideTableHtml_(centers, highlightTypes);
   }
 
   if (Object.keys(typeDescriptions).length) {
     html += emailSectionTitle_("TYPE DESCRIPTION", "9가지 성격유형별 설명");
-    html += buildTypeDescriptionsTableHtml_(typeDescriptions, growthTable, selectedType);
+    html += buildTypeDescriptionsTableHtml_(typeDescriptions, growthTable, highlightTypes);
   }
 
   if (Object.keys(strengthsWeaknessesTable).length) {
     html += emailSectionTitle_("STRENGTHS & WEAKNESSES", "성격유형별 강점과 약점");
-    html += buildStrengthsWeaknessesTableHtml_(strengthsWeaknessesTable, growthTable, selectedType);
+    html += buildStrengthsWeaknessesTableHtml_(strengthsWeaknessesTable, growthTable, highlightTypes);
   }
 
   if (Object.keys(wingDetails).length || wingIntro.length) {
     html += emailSectionTitle_("WING", "에니어그램의 날개");
     html += emailParagraphs_(wingIntro);
-    html += buildWingsGuideTableHtml_(wingDetails, growthTable, selectedType, result.wingLabel);
+    html += buildWingsGuideTableHtml_(wingDetails, growthTable, highlightTypes, result.wingLabel);
   }
 
   html += '<p style="margin:34px 0 0;padding-top:18px;border-top:1px solid #d5cbc3;color:#776b63;font-size:11px;line-height:1.7;">이 결과는 자기이해와 성장을 위한 참고 자료입니다. 현재의 상황과 경험에 따라 표현 방식은 달라질 수 있습니다.</p>';
@@ -598,7 +756,10 @@ function buildResultEmailHtml_(name, groupName, result, hasChart) {
 
 function buildResultEmailText_(name, groupName, result) {
   var guide = result.guide || {};
-  var selectedType = Number(result.type);
+  var highlightTypes = getResultHighlightTypes_(result);
+  var textResultLabel = highlightTypes.length > 1
+    ? "공동 1위: " + highlightTypes.map(function (type) { return type + "번 " + ENNEAGRAM_TYPE_NAMES[type]; }).join(", ")
+    : result.type + "번 - " + result.typeName;
   var growthTable = guide.growthTable || {};
   var centers = Array.isArray(guide.centers) ? guide.centers : [];
   var typeDescriptions = guide.typeDescriptions || {};
@@ -608,7 +769,7 @@ function buildResultEmailText_(name, groupName, result) {
     name + "님의 에니어그램 검사 결과입니다.",
     "",
     "소속: " + groupName,
-    "유형: " + result.type + "번 - " + result.typeName,
+    "유형: " + textResultLabel,
     "힘의 중심: " + result.center,
     "날개: " + result.wingLabel + " (" + result.wingName + ")",
     "분열(스트레스) 방향: " + result.stress + "번 - " + result.stressName,
@@ -626,22 +787,22 @@ function buildResultEmailText_(name, groupName, result) {
   for (var growthType = 1; growthType <= 9; growthType++) {
     var growth = growthTable[growthType];
     if (!growth) continue;
-    lines.push("", "[분열과 통합 · " + growthType + "번 " + growth.name + (growthType === selectedType ? " · 나의 최종 유형" : "") + "]", "심리적 기능: " + growth.psychFunction, "회피: " + growth.avoidance, "함정: " + growth.trap, "약점(분열): " + growth.weakness, "강점(통합): " + growth.strength, "성장 전략: " + joinListText_(growth.strategies), "좌우명: " + growth.motto);
+    lines.push("", "[분열과 통합 · " + growthType + "번 " + growth.name + (highlightTypes.indexOf(growthType) !== -1 ? " · 최고 점수 유형" : "") + "]", "심리적 기능: " + growth.psychFunction, "회피: " + growth.avoidance, "함정: " + growth.trap, "약점(분열): " + growth.weakness, "강점(통합): " + growth.strength, "성장 전략: " + joinListText_(growth.strategies), "좌우명: " + growth.motto);
   }
   for (var centerIndex = 0; centerIndex < centers.length; centerIndex++) {
     var center = centers[centerIndex];
-    var isSelectedCenter = (center.types || []).indexOf(selectedType) !== -1;
+    var isSelectedCenter = (center.types || []).some(function (type) { return highlightTypes.indexOf(Number(type)) !== -1; });
     lines.push("", "[힘의 중심 · " + center.key + (isSelectedCenter ? " · 나의 힘의 중심" : "") + "]", center.desc, "감정: " + center.emotion, "관심: " + center.interest, "상황 파악: " + center.situationAwareness, "의사 결정: " + center.decision, "판단 양식: " + center.judgment, "신체 발달: " + center.bodyDevelopment, "지능: " + center.intelligence);
   }
   for (var descriptionType = 1; descriptionType <= 9; descriptionType++) {
     var description = typeDescriptions[descriptionType];
     if (!description) continue;
-    lines.push("", "[" + descriptionType + "번 유형 설명" + (descriptionType === selectedType ? " · 나의 최종 유형" : "") + "]", description.tagline, description.body, "주의할 점: " + description.caution);
+    lines.push("", "[" + descriptionType + "번 유형 설명" + (highlightTypes.indexOf(descriptionType) !== -1 ? " · 최고 점수 유형" : "") + "]", description.tagline, description.body, "주의할 점: " + description.caution);
   }
   for (var swType = 1; swType <= 9; swType++) {
     var strengthsWeaknesses = strengthsWeaknessesTable[swType];
     if (!strengthsWeaknesses) continue;
-    lines.push("", "[" + swType + "번 강점과 약점" + (swType === selectedType ? " · 나의 최종 유형" : "") + "]", "힘의 중심: " + strengthsWeaknesses.center, "강점: " + joinListText_(strengthsWeaknesses.strengths), "약점: " + joinListText_(strengthsWeaknesses.weaknesses));
+    lines.push("", "[" + swType + "번 강점과 약점" + (highlightTypes.indexOf(swType) !== -1 ? " · 최고 점수 유형" : "") + "]", "힘의 중심: " + strengthsWeaknesses.center, "강점: " + joinListText_(strengthsWeaknesses.strengths), "약점: " + joinListText_(strengthsWeaknesses.weaknesses));
   }
   if (Array.isArray(guide.wingIntro)) {
     lines.push("", "[날개 안내]");
@@ -658,12 +819,12 @@ function buildResultEmailText_(name, groupName, result) {
 
 function buildScoreTableHtml_(result) {
   var scores = result.scores || {};
-  var selectedType = Number(result.type);
+  var highlightTypes = getResultHighlightTypes_(result);
   var html = '<table role="presentation" width="100%" border="1" bordercolor="#d5cbc3" cellspacing="0" cellpadding="0" style="width:100%;border-collapse:collapse;">';
   html += '<tr>' + emailTableHeaderCell_("유형", "34%", false) + emailTableHeaderCell_("이름", "46%", false) + emailTableHeaderCell_("점수", "20%", false, "text-align:right;") + '</tr>';
   for (var type = 1; type <= 9; type++) {
-    var highlighted = type === selectedType;
-    var typeLabel = '<strong>' + type + '번</strong>' + (highlighted ? '<span style="display:inline-block;margin-left:7px;padding:2px 7px;background:#8f1f26;color:#ffffff;font-size:9px;font-weight:700;">최종 유형</span>' : "");
+    var highlighted = highlightTypes.indexOf(type) !== -1;
+    var typeLabel = '<strong>' + type + '번</strong>' + (highlighted ? '<span style="display:inline-block;margin-left:7px;padding:2px 7px;background:#8f1f26;color:#ffffff;font-size:9px;font-weight:700;">최고 점수</span>' : "");
     html += '<tr>';
     html += emailTableCell_(typeLabel, highlighted, true, "34%", "font-weight:700;");
     html += emailTableCell_(escapeHtml_(ENNEAGRAM_TYPE_NAMES[type]), highlighted, false, "46%", "");
@@ -674,7 +835,7 @@ function buildScoreTableHtml_(result) {
   return html;
 }
 
-function buildGrowthGuideTableHtml_(growthTable, selectedType) {
+function buildGrowthGuideTableHtml_(growthTable, highlightTypes) {
   var html = '<table role="presentation" width="100%" border="1" bordercolor="#d5cbc3" cellspacing="0" cellpadding="0" style="width:100%;min-width:1080px;border-collapse:collapse;table-layout:fixed;">';
   html += '<tr>';
   html += emailTableHeaderCell_("유형", "115", false);
@@ -689,9 +850,9 @@ function buildGrowthGuideTableHtml_(growthTable, selectedType) {
   for (var type = 1; type <= 9; type++) {
     var growth = growthTable[type];
     if (!growth) continue;
-    var highlighted = type === selectedType;
+    var highlighted = highlightTypes.indexOf(type) !== -1;
     var typeHtml = '<strong>' + type + '번 · ' + escapeHtml_(growth.name) + '</strong>';
-    if (highlighted) typeHtml += '<div style="margin-top:6px;color:#8f1f26;font-size:9px;font-weight:700;">나의 최종 유형</div>';
+    if (highlighted) typeHtml += '<div style="margin-top:6px;color:#8f1f26;font-size:9px;font-weight:700;">최고 점수 유형</div>';
     html += '<tr>';
     html += emailTableCell_(typeHtml, highlighted, true, "115", "");
     html += emailTableCell_(escapeHtml_(growth.psychFunction), highlighted, false, "155", "");
@@ -706,7 +867,7 @@ function buildGrowthGuideTableHtml_(growthTable, selectedType) {
   return emailWideTableWrap_(html + '</table>');
 }
 
-function buildCentersGuideTableHtml_(centers, selectedType) {
+function buildCentersGuideTableHtml_(centers, highlightTypes) {
   var rows = [
     ["설명", "desc"], ["감정", "emotion"], ["관심", "interest"],
     ["상황 파악", "situationAwareness"], ["의사 결정", "decision"],
@@ -716,15 +877,15 @@ function buildCentersGuideTableHtml_(centers, selectedType) {
   html += '<tr>' + emailTableHeaderCell_("구분", "100", false);
   for (var centerIndex = 0; centerIndex < centers.length; centerIndex++) {
     var center = centers[centerIndex];
-    var selectedCenter = (center.types || []).indexOf(selectedType) !== -1;
-    var centerLabel = center.key + " (" + (center.types || []).join(", ") + "유형)" + (selectedCenter ? " · 나의 중심" : "");
+    var selectedCenter = (center.types || []).some(function (type) { return highlightTypes.indexOf(Number(type)) !== -1; });
+    var centerLabel = center.key + " (" + (center.types || []).join(", ") + "유형)" + (selectedCenter ? " · 최고 점수 유형의 중심" : "");
     html += emailTableHeaderCell_(centerLabel, "293", selectedCenter);
   }
   html += '</tr>';
   for (var rowIndex = 0; rowIndex < rows.length; rowIndex++) {
     html += '<tr>' + emailTableCell_('<strong>' + escapeHtml_(rows[rowIndex][0]) + '</strong>', false, true, "100", "background:#f6f0e7;");
     for (var columnIndex = 0; columnIndex < centers.length; columnIndex++) {
-      var selectedColumn = (centers[columnIndex].types || []).indexOf(selectedType) !== -1;
+      var selectedColumn = (centers[columnIndex].types || []).some(function (type) { return highlightTypes.indexOf(Number(type)) !== -1; });
       html += emailTableCell_(escapeHtml_(centers[columnIndex][rows[rowIndex][1]]), selectedColumn, false, "293", "");
     }
     html += '</tr>';
@@ -732,16 +893,16 @@ function buildCentersGuideTableHtml_(centers, selectedType) {
   return emailWideTableWrap_(html + '</table>');
 }
 
-function buildTypeDescriptionsTableHtml_(typeDescriptions, growthTable, selectedType) {
+function buildTypeDescriptionsTableHtml_(typeDescriptions, growthTable, highlightTypes) {
   var html = '<table role="presentation" width="100%" border="1" bordercolor="#d5cbc3" cellspacing="0" cellpadding="0" style="width:100%;min-width:980px;border-collapse:collapse;table-layout:fixed;">';
   html += '<tr>' + emailTableHeaderCell_("유형", "130", false) + emailTableHeaderCell_("특징", "220", false) + emailTableHeaderCell_("상세 설명", "430", false) + emailTableHeaderCell_("주의할 점", "200", false) + '</tr>';
   for (var type = 1; type <= 9; type++) {
     var description = typeDescriptions[type];
     if (!description) continue;
-    var highlighted = type === selectedType;
+    var highlighted = highlightTypes.indexOf(type) !== -1;
     var typeName = growthTable[type] ? growthTable[type].name : ENNEAGRAM_TYPE_NAMES[type];
     var typeHtml = '<strong>' + type + '번 · ' + escapeHtml_(typeName) + '</strong>';
-    if (highlighted) typeHtml += '<div style="margin-top:6px;color:#8f1f26;font-size:9px;font-weight:700;">나의 최종 유형</div>';
+    if (highlighted) typeHtml += '<div style="margin-top:6px;color:#8f1f26;font-size:9px;font-weight:700;">최고 점수 유형</div>';
     html += '<tr>';
     html += emailTableCell_(typeHtml, highlighted, true, "130", "");
     html += emailTableCell_('<strong>' + escapeHtml_(description.tagline) + '</strong>', highlighted, false, "220", "");
@@ -752,16 +913,16 @@ function buildTypeDescriptionsTableHtml_(typeDescriptions, growthTable, selected
   return emailWideTableWrap_(html + '</table>');
 }
 
-function buildStrengthsWeaknessesTableHtml_(table, growthTable, selectedType) {
+function buildStrengthsWeaknessesTableHtml_(table, growthTable, highlightTypes) {
   var html = '<table role="presentation" width="100%" border="1" bordercolor="#d5cbc3" cellspacing="0" cellpadding="0" style="width:100%;min-width:900px;border-collapse:collapse;table-layout:fixed;">';
   html += '<tr>' + emailTableHeaderCell_("힘의 중심", "110", false) + emailTableHeaderCell_("유형", "150", false) + emailTableHeaderCell_("강점", "320", false) + emailTableHeaderCell_("약점", "320", false) + '</tr>';
   for (var type = 1; type <= 9; type++) {
     var item = table[type];
     if (!item) continue;
-    var highlighted = type === selectedType;
+    var highlighted = highlightTypes.indexOf(type) !== -1;
     var typeName = growthTable[type] ? growthTable[type].name : ENNEAGRAM_TYPE_NAMES[type];
     var typeHtml = '<strong>' + type + '번 · ' + escapeHtml_(typeName) + '</strong>';
-    if (highlighted) typeHtml += '<div style="margin-top:6px;color:#8f1f26;font-size:9px;font-weight:700;">나의 최종 유형</div>';
+    if (highlighted) typeHtml += '<div style="margin-top:6px;color:#8f1f26;font-size:9px;font-weight:700;">최고 점수 유형</div>';
     html += '<tr>';
     html += emailTableCell_(escapeHtml_(item.center), highlighted, true, "110", "font-weight:700;");
     html += emailTableCell_(typeHtml, highlighted, false, "150", "");
@@ -772,12 +933,12 @@ function buildStrengthsWeaknessesTableHtml_(table, growthTable, selectedType) {
   return emailWideTableWrap_(html + '</table>');
 }
 
-function buildWingsGuideTableHtml_(wingDetails, growthTable, selectedType, selectedWing) {
+function buildWingsGuideTableHtml_(wingDetails, growthTable, highlightTypes, selectedWing) {
   var html = '<table role="presentation" width="100%" border="1" bordercolor="#d5cbc3" cellspacing="0" cellpadding="0" style="width:100%;min-width:900px;border-collapse:collapse;table-layout:fixed;">';
   html += '<tr>' + emailTableHeaderCell_("기본 유형", "150", false) + emailTableHeaderCell_("날개", "100", false) + emailTableHeaderCell_("별칭", "150", false) + emailTableHeaderCell_("특징", "500", false) + '</tr>';
   for (var type = 1; type <= 9; type++) {
     var wings = wingDetails[type] || [];
-    var highlightedType = type === selectedType;
+    var highlightedType = highlightTypes.indexOf(type) !== -1;
     for (var wingIndex = 0; wingIndex < wings.length; wingIndex++) {
       var wing = wings[wingIndex];
       var exactWing = wing.code === selectedWing;
@@ -785,7 +946,7 @@ function buildWingsGuideTableHtml_(wingDetails, growthTable, selectedType, selec
       if (wingIndex === 0) {
         var typeName = growthTable[type] ? growthTable[type].name : ENNEAGRAM_TYPE_NAMES[type];
         var typeHtml = '<strong>' + type + '번 · ' + escapeHtml_(typeName) + '</strong>';
-        if (highlightedType) typeHtml += '<div style="margin-top:6px;color:#8f1f26;font-size:9px;font-weight:700;">나의 최종 유형</div>';
+        if (highlightedType) typeHtml += '<div style="margin-top:6px;color:#8f1f26;font-size:9px;font-weight:700;">최고 점수 유형</div>';
         html += emailTableCellWithRowspan_(typeHtml, highlightedType, true, "150", wings.length);
       }
       var wingHtml = '<strong>' + escapeHtml_(wing.code) + '</strong>';

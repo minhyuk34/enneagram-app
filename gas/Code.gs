@@ -19,6 +19,10 @@ var ADMIN_PASSWORD_PROPERTY = "ADMIN_PASSWORD";
 var ADMIN_PASSWORD_HASH_PROPERTY = "ADMIN_PASSWORD_HASH";
 var ADMIN_PASSWORD_VERSION_PROPERTY = "ADMIN_PASSWORD_VERSION";
 var PASSWORD_SALT_PROPERTY = "PASSWORD_SALT";
+// 관리자 세션은 CacheService 대신 PropertiesService에 저장한다.
+// CacheService는 쓰기 직후 읽기가 항상 보장되지 않아(특히 스크립트가 오래 쉬었다 깨어날 때),
+// 로그인 직후 "admin_session_expired"가 뜨는 문제가 있었다.
+var ADMIN_SESSION_PROPERTY_PREFIX = "admin_session_";
 
 var ENNEAGRAM_TYPE_NAMES = {
   1: "개혁가", 2: "조력가", 3: "성취자", 4: "개인주의자", 5: "탐구자",
@@ -46,6 +50,7 @@ var RECORD_HEADER = [
 
 var GROUP_HEADER = [
   "집단ID", "집단명", "검사비밀번호해시", "활성", "생성일", "수정일",
+  "검사비밀번호",
 ];
 
 function doGet() {
@@ -66,6 +71,7 @@ function doPost(e) {
 
   try {
     if (data.action === "groups") return handleListGroups_();
+    if (data.action === "groupPasswordRecovery") return handleGroupPasswordRecovery_(data);
     if (data.action === "participantLogin") return handleParticipantLogin_(data);
     if (data.action === "selectResultType") return handleSelectResultType_(data);
     if (data.action === "lookup") return handleLookup_(data); // 이전 앱 호환
@@ -108,6 +114,32 @@ function handleListGroups_() {
   // 종료된 집단도 과거 결과 조회를 위해 표시하되, 새 검사는 서버에서 차단한다.
   var groups = listGroups_(true).map(publicGroup_);
   return jsonOutput({ ok: true, groups: groups });
+}
+
+function handleGroupPasswordRecovery_(data) {
+  var groupId = cleanText_(data.groupId);
+  var email = normalizeEmail_(data.email);
+  if (!groupId || !email) {
+    return jsonOutput({ ok: false, error: "email_and_group_required" });
+  }
+
+  var group = findGroupById_(groupId, true);
+  if (!group) return jsonOutput({ ok: false, error: "group_not_found" });
+
+  // 이 집단이 만들어진(또는 마지막으로 비밀번호가 바뀐) 시점에 평문 비밀번호를 저장해 두지 않았다면
+  // (예: 이번 기능 추가 이전에 생성된 집단) 되찾아 줄 값이 없다 — 해시는 복원이 불가능하다.
+  if (!group.accessCode) {
+    return jsonOutput({ ok: false, error: "recovery_not_available" });
+  }
+
+  try {
+    sendGroupPasswordEmail_(email, group.name, group.accessCode);
+  } catch (mailError) {
+    Logger.log("group password email failed: " + mailError);
+    return jsonOutput({ ok: false, error: "email_send_failed" });
+  }
+
+  return jsonOutput({ ok: true });
 }
 
 function handleParticipantLogin_(data) {
@@ -281,11 +313,7 @@ function handleAdminLogin_(data) {
 
   var token = Utilities.getUuid().replace(/-/g, "") + Utilities.getUuid().replace(/-/g, "");
   var version = getAdminPasswordVersion_();
-  CacheService.getScriptCache().put(
-    "admin_session_" + token,
-    JSON.stringify({ version: version, issuedAt: new Date().toISOString() }),
-    ADMIN_SESSION_SECONDS
-  );
+  createAdminSession_(token, version);
 
   return jsonOutput({
     ok: true,
@@ -325,7 +353,9 @@ function handleAdminCreateGroup_(data) {
 
     var id = "grp_" + Utilities.getUuid().replace(/-/g, "").slice(0, 16);
     var now = new Date();
-    getGroupSheet_().appendRow([id, name, hashSecret_(accessCode), true, now, now]);
+    // 검사비밀번호(평문)는 "비밀번호 찾기" 이메일 발송을 위해 별도 열에 보관한다.
+    // 검사비밀번호해시는 기존처럼 검사 응시 시 검증용으로만 쓰인다.
+    getGroupSheet_().appendRow([id, name, hashSecret_(accessCode), true, now, now, accessCode]);
     return jsonOutput({
       ok: true,
       group: { id: id, name: name, active: true, createdAt: now, updatedAt: now },
@@ -366,6 +396,7 @@ function handleAdminUpdateGroup_(data) {
         return jsonOutput({ ok: false, error: "access_code_too_short" });
       }
       sheet.getRange(row, 3).setValue(hashSecret_(accessCode));
+      sheet.getRange(row, 7).setValue(accessCode);
     }
 
     if (Object.prototype.hasOwnProperty.call(data, "active")) {
@@ -394,7 +425,7 @@ function handleAdminChangePassword_(data) {
 
 function handleAdminLogout_(data) {
   if (data.token) {
-    CacheService.getScriptCache().remove("admin_session_" + String(data.token));
+    deleteAdminSession_(String(data.token));
   }
   return jsonOutput({ ok: true });
 }
@@ -402,13 +433,55 @@ function handleAdminLogout_(data) {
 function requireAdmin_(token) {
   var cleanToken = String(token || "");
   if (!cleanToken) throw new Error("admin_auth_required");
-  var raw = CacheService.getScriptCache().get("admin_session_" + cleanToken);
-  if (!raw) throw new Error("admin_session_expired");
-  var session = JSON.parse(raw);
+  var session = readAdminSession_(cleanToken);
+  if (!session) throw new Error("admin_session_expired");
   if (String(session.version) !== String(getAdminPasswordVersion_())) {
-    CacheService.getScriptCache().remove("admin_session_" + cleanToken);
+    deleteAdminSession_(cleanToken);
     throw new Error("admin_session_expired");
   }
+}
+
+// 관리자 세션 저장/조회/삭제 — PropertiesService 기반 (CacheService보다 즉시 일관성이 높다).
+function createAdminSession_(token, version) {
+  var props = PropertiesService.getScriptProperties();
+  pruneExpiredAdminSessions_(props);
+  props.setProperty(
+    ADMIN_SESSION_PROPERTY_PREFIX + token,
+    JSON.stringify({
+      version: version,
+      issuedAt: new Date().toISOString(),
+      expiresAt: new Date().getTime() + ADMIN_SESSION_SECONDS * 1000,
+    })
+  );
+}
+
+function readAdminSession_(token) {
+  var props = PropertiesService.getScriptProperties();
+  var raw = props.getProperty(ADMIN_SESSION_PROPERTY_PREFIX + token);
+  if (!raw) return null;
+  var session = safeJsonParse_(raw, null);
+  if (!session || !session.expiresAt || session.expiresAt < new Date().getTime()) {
+    props.deleteProperty(ADMIN_SESSION_PROPERTY_PREFIX + token);
+    return null;
+  }
+  return session;
+}
+
+function deleteAdminSession_(token) {
+  PropertiesService.getScriptProperties().deleteProperty(ADMIN_SESSION_PROPERTY_PREFIX + token);
+}
+
+// 만료된 세션 속성이 쌓이지 않도록, 로그인할 때마다 가볍게 정리한다.
+function pruneExpiredAdminSessions_(props) {
+  var all = props.getProperties();
+  var now = new Date().getTime();
+  Object.keys(all).forEach(function (key) {
+    if (key.indexOf(ADMIN_SESSION_PROPERTY_PREFIX) !== 0) return;
+    var session = safeJsonParse_(all[key], null);
+    if (!session || !session.expiresAt || session.expiresAt < now) {
+      props.deleteProperty(key);
+    }
+  });
 }
 
 function getAdminPasswordHash_() {
@@ -444,6 +517,7 @@ function listGroups_(includeInactive) {
       active: toBoolean_(row[3]),
       createdAt: row[4],
       updatedAt: row[5],
+      accessCode: row[6] ? String(row[6]) : "",
       rowNumber: i + 1,
     };
     if (includeInactive || group.active) groups.push(group);
@@ -610,6 +684,31 @@ function getResultHighlightTypes_(result) {
     return result.topTypes.map(Number);
   }
   return getTopTypesFromScores_(result.scores || {});
+}
+
+function sendGroupPasswordEmail_(email, groupName, accessCode) {
+  var subject = "[에니어그램 검사] " + groupName + " 비밀번호 안내";
+  var body = groupName + " 집단의 검사 비밀번호는 다음과 같습니다.\n\n" +
+    accessCode + "\n\n" +
+    "이 이메일은 비밀번호 찾기 요청에 따라 자동으로 발송되었습니다.\n" +
+    "요청하지 않으셨다면 이 메일은 무시하셔도 됩니다.";
+  var htmlBody =
+    '<div style="margin:0;padding:24px 8px;background:#f6f0e7;color:#171310;font-family:Pretendard,Apple SD Gothic Neo,Noto Sans KR,Malgun Gothic,Arial,sans-serif;">' +
+    '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="width:100%;max-width:520px;margin:0 auto;border-collapse:collapse;background:#fffaf2;border:1px solid #b4a9a1;">' +
+    '<tr><td style="padding:26px 26px 8px;">' +
+    '<div style="font-size:11px;font-weight:700;letter-spacing:2px;color:#8f1f26;">PASSWORD RECOVERY</div>' +
+    '<h1 style="margin:10px 0 18px;font-size:22px;line-height:1.4;color:#171310;">' + escapeHtml_(groupName) + ' 비밀번호 안내</h1>' +
+    '<div style="padding:16px 18px;background:#f6f0e7;border:1px solid #d5cbc3;font-size:20px;font-weight:700;letter-spacing:1px;color:#171310;">' + escapeHtml_(accessCode) + '</div>' +
+    '<p style="margin:20px 0 0;color:#615751;font-size:12px;line-height:1.8;">이 이메일은 비밀번호 찾기 요청에 따라 자동으로 발송되었습니다. 요청하지 않으셨다면 이 메일은 무시하셔도 됩니다.</p>' +
+    '</td></tr></table></div>';
+
+  MailApp.sendEmail({
+    to: email,
+    subject: subject,
+    body: body,
+    htmlBody: htmlBody,
+    name: "에니어그램 검사",
+  });
 }
 
 function sendResultEmail_(name, email, groupName, result) {

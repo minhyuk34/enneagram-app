@@ -165,6 +165,7 @@ const context = {
       getProperty: (key) => properties.get(key) || null,
       setProperty: (key, value) => properties.set(key, String(value)),
       deleteProperty: (key) => properties.delete(key),
+      getProperties: () => Object.fromEntries(properties),
     }),
   },
   CacheService: {
@@ -522,5 +523,42 @@ const resolvedTieLogin = post({
 });
 assert.equal(resolvedTieLogin.records[0].selectedType, 8);
 assert.deepEqual(Array.from(resolvedTieLogin.records[0].topTypes), [2, 8]);
+
+// 집단별 비밀번호 찾기(이메일 발송)
+const recovery = post({
+  action: "groupPasswordRecovery",
+  groupId,
+  email: "person@example.com",
+});
+assert.equal(recovery.ok, true);
+assert.equal(sentEmails.at(-1).to, "person@example.com");
+assert.match(sentEmails.at(-1).subject, /리더십 1기 비밀번호 안내/);
+assert.match(sentEmails.at(-1).body, /new-class-code/);
+assert.match(sentEmails.at(-1).htmlBody, /new-class-code/);
+
+const recoveryMissingGroup = post({
+  action: "groupPasswordRecovery",
+  groupId: "grp_does_not_exist",
+  email: "person@example.com",
+});
+assert.equal(recoveryMissingGroup.ok, false);
+assert.equal(recoveryMissingGroup.error, "group_not_found");
+
+// 이번 기능 추가 이전에 만들어져 평문 비밀번호가 없는(해시만 있는) 집단은 찾기가 불가능해야 한다.
+const legacyGroupSheet = spreadsheet.getSheetByName("집단");
+const legacyGroupId = "grp_legacy_no_plaintext";
+legacyGroupSheet.rows.push([
+  legacyGroupId, "레거시 집단", crypto.createHash("sha256").update("legacy-code").digest("hex"),
+  true, new Date(), new Date(),
+]);
+const legacyEmailCountBefore = sentEmails.length;
+const legacyRecovery = post({
+  action: "groupPasswordRecovery",
+  groupId: legacyGroupId,
+  email: "person@example.com",
+});
+assert.equal(legacyRecovery.ok, false);
+assert.equal(legacyRecovery.error, "recovery_not_available");
+assert.equal(sentEmails.length, legacyEmailCountBefore);
 
 console.log("GAS backend authorization scenarios passed");

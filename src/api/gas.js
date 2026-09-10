@@ -32,6 +32,10 @@ export function listGroups() {
   return callGas({ action: "groups" });
 }
 
+export function recoverGroupPassword({ groupId, email }) {
+  return callGas({ action: "groupPasswordRecovery", groupId, email });
+}
+
 export function participantLogin({ email, groupId, accessCode }) {
   return callGas({ action: "participantLogin", email, groupId, accessCode });
 }

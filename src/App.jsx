@@ -4,7 +4,13 @@ import { TYPE_INFO } from "./data/enneagramInfo";
 import { computeResult, describeResult, recordToResult } from "./utils/scoring";
 import { calcManAge, MIN_BIRTH_YEAR, MAX_BIRTH_YEAR } from "./utils/age";
 import { MAX_RECORDS_PER_EMAIL } from "./config";
-import { listGroups, participantLogin, selectResultType, submitResult } from "./api/gas";
+import {
+  listGroups,
+  participantLogin,
+  recoverGroupPassword,
+  selectResultType,
+  submitResult,
+} from "./api/gas";
 import ScoreChart from "./components/ScoreChart";
 import EnneagramGuide from "./components/EnneagramGuide";
 import "./App.css";
@@ -27,6 +33,9 @@ const ERROR_MESSAGES = {
   invalid_selected_type: "공동 1위로 나온 번호 중에서 선택해 주세요.",
   type_already_selected: "이 기록은 이미 유형 선택이 완료되었습니다.",
   GAS_NOT_CONFIGURED: "검사 서버가 연결되지 않았습니다.",
+  email_and_group_required: "집단을 선택하고 이메일을 입력해 주세요.",
+  recovery_not_available: "이 집단은 비밀번호 찾기를 지원하지 않습니다. 관리자에게 문의해 주세요.",
+  email_send_failed: "이메일 발송에 실패했습니다. 잠시 후 다시 시도해 주세요.",
 };
 
 function getErrorMessage(error, fallback) {
@@ -162,6 +171,10 @@ function LoginScreen({
     accessCode: "",
     email: "",
   });
+  const [recoveryOpen, setRecoveryOpen] = useState(false);
+  const [recoveryEmail, setRecoveryEmail] = useState("");
+  const [recoveryStatus, setRecoveryStatus] = useState("idle"); // idle | sending | sent | error
+  const [recoveryError, setRecoveryError] = useState("");
   const manAge = calcManAge(form.birthYear);
   const canSubmit =
     form.name &&
@@ -179,6 +192,27 @@ function LoginScreen({
     if (!canSubmit || loading) return;
     const group = groups.find((item) => item.id === form.groupId);
     onLogin({ ...form, age: manAge, affiliation: group?.name || "" });
+  }
+
+  function toggleRecovery() {
+    setRecoveryOpen((prev) => !prev);
+    setRecoveryStatus("idle");
+    setRecoveryError("");
+    if (!recoveryEmail) setRecoveryEmail(form.email);
+  }
+
+  async function submitRecovery(e) {
+    e.preventDefault();
+    if (!form.groupId || !recoveryEmail || recoveryStatus === "sending") return;
+    setRecoveryStatus("sending");
+    setRecoveryError("");
+    try {
+      await recoverGroupPassword({ groupId: form.groupId, email: recoveryEmail });
+      setRecoveryStatus("sent");
+    } catch (err) {
+      setRecoveryStatus("error");
+      setRecoveryError(getErrorMessage(err, "비밀번호 찾기에 실패했습니다. 잠시 후 다시 시도해 주세요."));
+    }
   }
 
   return (
@@ -283,7 +317,45 @@ function LoginScreen({
               onChange={(e) => update("accessCode", e.target.value)}
               required
             />
+            <button type="button" className="link-button" onClick={toggleRecovery}>
+              비밀번호를 잊으셨나요?
+            </button>
           </label>
+          {recoveryOpen && (
+            <div className="form-field form-field-wide recovery-panel">
+              {!form.groupId ? (
+                <p className="form-message">먼저 위에서 집단을 선택해 주세요.</p>
+              ) : recoveryStatus === "sent" ? (
+                <p className="form-message">
+                  입력하신 이메일로 비밀번호를 보내드렸습니다. 받은편지함(스팸함도 확인)을 확인해 주세요.
+                </p>
+              ) : (
+                <div className="recovery-form">
+                  <span className="field-label">비밀번호를 받을 이메일</span>
+                  <div className="recovery-form-row">
+                    <input
+                      className="text-input"
+                      type="email"
+                      placeholder="name@example.com"
+                      value={recoveryEmail}
+                      onChange={(e) => setRecoveryEmail(e.target.value)}
+                    />
+                    <button
+                      type="button"
+                      className="recovery-submit"
+                      disabled={!recoveryEmail || recoveryStatus === "sending"}
+                      onClick={submitRecovery}
+                    >
+                      {recoveryStatus === "sending" ? "보내는 중" : "비밀번호 받기"}
+                    </button>
+                  </div>
+                  {recoveryStatus === "error" && (
+                    <p className="form-message error">{recoveryError}</p>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
           {(groupsError || loginError) && (
             <div className="form-message error" role="alert">
               <span>{groupsError || loginError}</span>

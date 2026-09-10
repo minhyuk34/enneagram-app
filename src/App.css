@@ -338,6 +338,64 @@ select.text-input {
   background: #faeceb;
 }
 
+.link-button {
+  justify-self: start;
+  margin-top: 6px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--wine);
+  font-size: 10px;
+  font-weight: 700;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.recovery-panel {
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  background: var(--paper);
+}
+
+.recovery-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.recovery-form-row {
+  display: flex;
+  gap: 8px;
+}
+
+.recovery-form-row .text-input {
+  flex: 1;
+}
+
+.recovery-submit {
+  flex: 0 0 auto;
+  padding: 0 16px;
+  border: 1px solid var(--border-strong);
+  border-radius: 0;
+  color: var(--ink);
+  background: transparent;
+  font-size: 11px;
+  font-weight: 800;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.recovery-submit:hover:not(:disabled) {
+  color: var(--paper-light);
+  border-color: var(--ink);
+  background: var(--ink);
+}
+
+.recovery-submit:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .form-message button {
   flex: 0 0 auto;
   padding: 5px 7px;

@@ -178,7 +178,12 @@ const context = {
   Utilities: {
     DigestAlgorithm: { SHA_256: "sha256" },
     Charset: { UTF_8: "utf8" },
-    getUuid: () => `00000000-0000-4000-8000-${String(++uuidIndex).padStart(12, "0")}`,
+    // 앞 8자리에도 카운터를 넣어야 한다 — handleAdminCreateGroup_이 앞 16자만 잘라서
+    // 집단ID로 쓰는데, 카운터가 뒤쪽에만 있으면 그 16자가 항상 똑같아져 집단ID가 충돌한다.
+    getUuid: () => {
+      const n = String(++uuidIndex).padStart(8, "0");
+      return `${n}-0000-4000-8000-${String(uuidIndex).padStart(12, "0")}`;
+    },
     computeDigest: (_algorithm, value) => [...crypto.createHash("sha256").update(value).digest()],
   },
   ContentService: {
@@ -560,5 +565,52 @@ const legacyRecovery = post({
 assert.equal(legacyRecovery.ok, false);
 assert.equal(legacyRecovery.error, "recovery_not_available");
 assert.equal(sentEmails.length, legacyEmailCountBefore);
+
+// 집단별 실시일 저장 및 실시일 기준 정렬(최신 실시일이 먼저, 미정은 맨 뒤)
+const dateGroupA = post({
+  action: "adminCreateGroup",
+  token: login.token,
+  name: "9월 1반",
+  accessCode: "sep-class-1",
+  testDate: "2026-09-01",
+});
+assert.equal(dateGroupA.ok, true);
+assert.equal(dateGroupA.group.testDate, "2026-09-01");
+
+const dateGroupB = post({
+  action: "adminCreateGroup",
+  token: login.token,
+  name: "9월 2반",
+  accessCode: "sep-class-2",
+  testDate: "2026-09-15",
+});
+assert.equal(dateGroupB.ok, true);
+
+const dateGroupC = post({
+  action: "adminCreateGroup",
+  token: login.token,
+  name: "9월 3반(날짜 미정)",
+  accessCode: "sep-class-3",
+});
+assert.equal(dateGroupC.ok, true);
+assert.equal(dateGroupC.group.testDate, "");
+
+const sortedDashboard = post({ action: "adminDashboard", token: login.token });
+const sortedNames = sortedDashboard.groups.map((group) => group.name);
+assert.ok(sortedNames.indexOf("9월 2반") < sortedNames.indexOf("9월 1반"));
+assert.ok(sortedNames.indexOf("9월 1반") < sortedNames.indexOf("9월 3반(날짜 미정)"));
+assert.ok(sortedNames.indexOf("리더십 1기") >= sortedNames.indexOf("9월 1반"));
+
+const updatedTestDate = post({
+  action: "adminUpdateGroup",
+  token: login.token,
+  groupId: dateGroupC.group.id,
+  testDate: "2026-09-30",
+});
+assert.equal(updatedTestDate.ok, true);
+assert.equal(updatedTestDate.group.testDate, "2026-09-30");
+
+const afterDateUpdate = post({ action: "adminDashboard", token: login.token });
+assert.equal(afterDateUpdate.groups[0].name, "9월 3반(날짜 미정)");
 
 console.log("GAS backend authorization scenarios passed");

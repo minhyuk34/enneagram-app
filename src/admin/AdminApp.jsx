@@ -124,13 +124,15 @@ function AdminLogin({ onLogin, loading, error }) {
 function CreateGroupForm({ onCreate, loading }) {
   const [name, setName] = useState("");
   const [accessCode, setAccessCode] = useState("");
+  const [testDate, setTestDate] = useState("");
 
   async function submit(event) {
     event.preventDefault();
-    const created = await onCreate({ name, accessCode });
+    const created = await onCreate({ name, accessCode, testDate });
     if (created) {
       setName("");
       setAccessCode("");
+      setTestDate("");
     }
   }
 
@@ -156,6 +158,14 @@ function CreateGroupForm({ onCreate, loading }) {
           required
         />
       </label>
+      <label>
+        <span>실시일 (선택)</span>
+        <input
+          type="date"
+          value={testDate}
+          onChange={(event) => setTestDate(event.target.value)}
+        />
+      </label>
       <button className="btn primary" type="submit" disabled={loading}>
         집단 만들기
       </button>
@@ -164,10 +174,13 @@ function CreateGroupForm({ onCreate, loading }) {
 }
 
 function GroupRow({ group, onUpdate, loading }) {
+  const [expanded, setExpanded] = useState(false);
   const [name, setName] = useState(group.name);
   const [accessCode, setAccessCode] = useState("");
+  const [testDate, setTestDate] = useState(group.testDate || "");
 
   useEffect(() => setName(group.name), [group.name]);
+  useEffect(() => setTestDate(group.testDate || ""), [group.testDate]);
 
   async function saveName() {
     if (name.trim() && name.trim() !== group.name) {
@@ -182,48 +195,88 @@ function GroupRow({ group, onUpdate, loading }) {
     if (updated) setAccessCode("");
   }
 
+  async function saveTestDate() {
+    if (testDate !== (group.testDate || "")) {
+      await onUpdate(group.id, { testDate });
+    }
+  }
+
   return (
     <article className={`group-row ${group.active ? "" : "inactive"}`}>
-      <div className="group-row-heading">
+      <button
+        type="button"
+        className="group-row-summary"
+        onClick={() => setExpanded((value) => !value)}
+        aria-expanded={expanded}
+      >
         <span className={`group-status ${group.active ? "active" : ""}`}>
           {group.active ? "검사 가능" : "중지됨"}
         </span>
-        <button
-          type="button"
-          className="text-button"
-          onClick={() => onUpdate(group.id, { active: !group.active })}
-          disabled={loading}
-        >
-          {group.active ? "검사 닫기" : "검사 열기"}
-        </button>
-      </div>
-      <label>
-        <span>집단 이름</span>
-        <div className="inline-field">
-          <input value={name} onChange={(event) => setName(event.target.value)} />
-          <button type="button" onClick={saveName} disabled={loading || name.trim() === group.name}>
-            저장
-          </button>
-        </div>
-      </label>
-      <form onSubmit={changeCode}>
-        <label>
-          <span>새 검사 비밀번호</span>
-          <div className="inline-field">
-            <input
-              type="password"
-              value={accessCode}
-              onChange={(event) => setAccessCode(event.target.value)}
-              placeholder="변경할 때만 입력"
-              minLength={4}
-            />
-            <button type="submit" disabled={loading || accessCode.length < 4}>
-              변경
+        <span className="group-row-name">{group.name}</span>
+        <span className="group-row-date">
+          {group.testDate ? group.testDate.replaceAll("-", ".") : "실시일 미정"}
+        </span>
+        <span className="group-row-chevron" aria-hidden="true">{expanded ? "▲" : "▼"}</span>
+      </button>
+
+      {expanded && (
+        <div className="group-row-body">
+          <div className="group-row-heading">
+            <button
+              type="button"
+              className="text-button"
+              onClick={() => onUpdate(group.id, { active: !group.active })}
+              disabled={loading}
+            >
+              {group.active ? "검사 닫기" : "검사 열기"}
             </button>
           </div>
-        </label>
-      </form>
-      <p className="group-row-meta">최근 변경 {formatDate(group.updatedAt)}</p>
+          <label>
+            <span>집단 이름</span>
+            <div className="inline-field">
+              <input value={name} onChange={(event) => setName(event.target.value)} />
+              <button type="button" onClick={saveName} disabled={loading || name.trim() === group.name}>
+                저장
+              </button>
+            </div>
+          </label>
+          <label>
+            <span>실시일</span>
+            <div className="inline-field">
+              <input
+                type="date"
+                value={testDate}
+                onChange={(event) => setTestDate(event.target.value)}
+              />
+              <button
+                type="button"
+                onClick={saveTestDate}
+                disabled={loading || testDate === (group.testDate || "")}
+              >
+                저장
+              </button>
+            </div>
+          </label>
+          <form onSubmit={changeCode}>
+            <label>
+              <span>새 검사 비밀번호</span>
+              <div className="inline-field">
+                <input
+                  type="password"
+                  value={accessCode}
+                  onChange={(event) => setAccessCode(event.target.value)}
+                  placeholder="변경할 때만 입력"
+                  minLength={4}
+                />
+                <button type="submit" disabled={loading || accessCode.length < 4}>
+                  변경
+                </button>
+              </div>
+            </label>
+          </form>
+          <p className="group-row-meta">최근 변경 {formatDate(group.updatedAt)}</p>
+        </div>
+      )}
     </article>
   );
 }

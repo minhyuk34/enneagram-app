@@ -83,8 +83,8 @@ export function getAdminDashboard(token) {
   return callGas({ action: "adminDashboard", token });
 }
 
-export function createAdminGroup(token, { name, accessCode }) {
-  return callGas({ action: "adminCreateGroup", token, name, accessCode });
+export function createAdminGroup(token, { name, accessCode, testDate }) {
+  return callGas({ action: "adminCreateGroup", token, name, accessCode, testDate });
 }
 
 export function updateAdminGroup(token, groupId, changes) {

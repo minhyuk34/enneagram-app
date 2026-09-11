@@ -310,6 +310,50 @@
   background: var(--code-bg);
 }
 
+.group-row-summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.group-row-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 700;
+  font-size: 13px;
+}
+
+.group-row-date {
+  flex: 0 0 auto;
+  color: var(--text);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.group-row-chevron {
+  flex: 0 0 auto;
+  color: var(--text);
+  font-size: 9px;
+}
+
+.group-row-body {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
 .group-row-heading {
   display: flex;
   align-items: center;

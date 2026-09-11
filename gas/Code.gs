@@ -50,7 +50,7 @@ var RECORD_HEADER = [
 
 var GROUP_HEADER = [
   "집단ID", "집단명", "검사비밀번호해시", "활성", "생성일", "수정일",
-  "검사비밀번호",
+  "검사비밀번호", "실시일",
 ];
 
 function doGet() {
@@ -326,7 +326,7 @@ function handleAdminDashboard_(data) {
   requireAdmin_(data.token);
   return jsonOutput({
     ok: true,
-    groups: listGroups_(true).map(adminGroup_),
+    groups: sortGroupsForAdmin_(listGroups_(true)).map(adminGroup_),
     records: listAllRecords_(),
     maxRecords: MAX_RECORDS_PER_EMAIL,
   });
@@ -336,6 +336,7 @@ function handleAdminCreateGroup_(data) {
   requireAdmin_(data.token);
   var name = cleanText_(data.name);
   var accessCode = String(data.accessCode || "");
+  var testDate = cleanText_(data.testDate || "");
   if (!name) return jsonOutput({ ok: false, error: "group_name_required" });
   if (accessCode.length < 4) {
     return jsonOutput({ ok: false, error: "access_code_too_short" });
@@ -355,10 +356,10 @@ function handleAdminCreateGroup_(data) {
     var now = new Date();
     // 검사비밀번호(평문)는 "비밀번호 찾기" 이메일 발송을 위해 별도 열에 보관한다.
     // 검사비밀번호해시는 기존처럼 검사 응시 시 검증용으로만 쓰인다.
-    getGroupSheet_().appendRow([id, name, hashSecret_(accessCode), true, now, now, accessCode]);
+    getGroupSheet_().appendRow([id, name, hashSecret_(accessCode), true, now, now, accessCode, testDate]);
     return jsonOutput({
       ok: true,
-      group: { id: id, name: name, active: true, createdAt: now, updatedAt: now },
+      group: { id: id, name: name, active: true, createdAt: now, updatedAt: now, testDate: testDate },
     });
   } finally {
     lock.releaseLock();
@@ -401,6 +402,10 @@ function handleAdminUpdateGroup_(data) {
 
     if (Object.prototype.hasOwnProperty.call(data, "active")) {
       sheet.getRange(row, 4).setValue(Boolean(data.active));
+    }
+
+    if (Object.prototype.hasOwnProperty.call(data, "testDate")) {
+      sheet.getRange(row, 8).setValue(cleanText_(data.testDate || ""));
     }
     sheet.getRange(row, 6).setValue(new Date());
 
@@ -518,6 +523,7 @@ function listGroups_(includeInactive) {
       createdAt: row[4],
       updatedAt: row[5],
       accessCode: row[6] ? String(row[6]) : "",
+      testDate: formatDateCell_(row[7]),
       rowNumber: i + 1,
     };
     if (includeInactive || group.active) groups.push(group);
@@ -562,7 +568,36 @@ function adminGroup_(group) {
     active: group.active,
     createdAt: group.createdAt,
     updatedAt: group.updatedAt,
+    testDate: group.testDate || "",
   };
+}
+
+// 실시일이 있는 집단을 최신순으로 앞에 두고, 실시일이 아직 없는 집단은 뒤로 보낸다.
+function sortGroupsForAdmin_(groups) {
+  return groups.slice().sort(function (a, b) {
+    var aTime = a.testDate ? new Date(a.testDate).getTime() : NaN;
+    var bTime = b.testDate ? new Date(b.testDate).getTime() : NaN;
+    var aHas = !isNaN(aTime);
+    var bHas = !isNaN(bTime);
+    if (aHas && bHas) return bTime - aTime;
+    if (aHas) return -1;
+    if (bHas) return 1;
+    return 0;
+  });
+}
+
+// 날짜 셀은 시트에 저장되는 순간 구글시트가 Date 객체로 바꿔버릴 수 있어,
+// 어떤 형태로 오든 "YYYY-MM-DD" 문자열로 고정해서 돌려준다(<input type="date"> 호환).
+function formatDateCell_(value) {
+  if (!value) return "";
+  if (value instanceof Date) {
+    if (isNaN(value.getTime())) return "";
+    var y = value.getFullYear();
+    var m = String(value.getMonth() + 1).padStart(2, "0");
+    var d = String(value.getDate()).padStart(2, "0");
+    return y + "-" + m + "-" + d;
+  }
+  return String(value);
 }
 
 function listRecordsByEmail_(email) {

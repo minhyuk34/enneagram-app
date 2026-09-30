@@ -460,6 +460,28 @@ assert.equal(dashboard.records[0].center, "장(본능) 중심");
 assert.equal(Object.hasOwn(dashboard.groups[0], "accessCodeHash"), false);
 assert.notEqual(spreadsheet.getSheetByName("집단").rows[1][2], "new-class-code");
 
+const badCopy = post({ action: "adminUpdateGroup", token: login.token, groupId, copyEmail: "not-an-email" });
+assert.equal(badCopy.error, "invalid_copy_email");
+const copySet = post({
+  action: "adminUpdateGroup",
+  token: login.token,
+  groupId,
+  copyEmail: "Copy@Example.com",
+  excludeFromOverall: true,
+});
+assert.equal(copySet.group.copyEmail, "copy@example.com");
+assert.equal(copySet.group.excludeFromOverall, true);
+const mailsBeforeCopy = sentEmails.length;
+assert.equal(post({
+  action: "submit", name: "사본확인", email: "copytest@example.com", age: 30, birthYear: 1995,
+  groupId, accessCode: "new-class-code",
+  result: { type: 8, scores: { 8: 40 } },
+}).ok, true);
+const copyMail = sentEmails[mailsBeforeCopy];
+assert.equal(copyMail.to, "copytest@example.com");
+assert.equal(copyMail.bcc, "copy@example.com");
+post({ action: "adminUpdateGroup", token: login.token, groupId, copyEmail: "", excludeFromOverall: false });
+
 const tiedSubmission = post({
   action: "submit",
   name: "공동일위",

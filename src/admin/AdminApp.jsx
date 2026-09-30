@@ -178,8 +178,10 @@ function GroupRow({ group, onUpdate, loading }) {
   const [name, setName] = useState(group.name);
   const [accessCode, setAccessCode] = useState("");
   const [testDate, setTestDate] = useState(group.testDate || "");
+  const [copyEmail, setCopyEmail] = useState(group.copyEmail || "");
 
   useEffect(() => setName(group.name), [group.name]);
+  useEffect(() => setCopyEmail(group.copyEmail || ""), [group.copyEmail]);
   useEffect(() => setTestDate(group.testDate || ""), [group.testDate]);
 
   async function saveName() {
@@ -198,6 +200,12 @@ function GroupRow({ group, onUpdate, loading }) {
   async function saveTestDate() {
     if (testDate !== (group.testDate || "")) {
       await onUpdate(group.id, { testDate });
+    }
+  }
+
+  async function saveCopyEmail() {
+    if (copyEmail.trim() !== (group.copyEmail || "")) {
+      await onUpdate(group.id, { copyEmail: copyEmail.trim() });
     }
   }
 
@@ -256,6 +264,33 @@ function GroupRow({ group, onUpdate, loading }) {
                 저장
               </button>
             </div>
+          </label>
+          <label>
+            <span>결과 사본 수신 메일 (숨은참조)</span>
+            <div className="inline-field">
+              <input
+                type="email"
+                value={copyEmail}
+                onChange={(event) => setCopyEmail(event.target.value)}
+                placeholder="비워두면 사본을 보내지 않음"
+              />
+              <button
+                type="button"
+                onClick={saveCopyEmail}
+                disabled={loading || copyEmail.trim() === (group.copyEmail || "")}
+              >
+                저장
+              </button>
+            </div>
+          </label>
+          <label className="check-field">
+            <input
+              type="checkbox"
+              checked={Boolean(group.excludeFromOverall)}
+              disabled={loading}
+              onChange={(event) => onUpdate(group.id, { excludeFromOverall: event.target.checked })}
+            />
+            <span>전체 통계에서 제외 (이 집단을 직접 선택하면 볼 수 있음)</span>
           </label>
           <form onSubmit={changeCode}>
             <label>
@@ -323,11 +358,15 @@ function AdminDashboard({ token, dashboard, onRefresh, onLogout }) {
   const [newAdminPassword, setNewAdminPassword] = useState("");
 
   const { groups, records } = dashboard;
+  const excludedGroupIds = useMemo(
+    () => new Set(groups.filter((group) => group.excludeFromOverall).map((group) => group.id)),
+    [groups],
+  );
   const filteredRecords = useMemo(() => {
     const keyword = search.trim().toLowerCase();
     return records.filter((record) => {
       const groupMatches =
-        selectedGroup === "all" ||
+        (selectedGroup === "all" && !excludedGroupIds.has(record.groupId)) ||
         record.groupId === selectedGroup ||
         getGroupName(record, groups) === groups.find((group) => group.id === selectedGroup)?.name;
       const searchMatches =
@@ -336,7 +375,7 @@ function AdminDashboard({ token, dashboard, onRefresh, onLogout }) {
         String(record.email || "").toLowerCase().includes(keyword);
       return groupMatches && searchMatches;
     });
-  }, [groups, records, search, selectedGroup]);
+  }, [groups, records, search, selectedGroup, excludedGroupIds]);
   const stats = useMemo(() => summarize(filteredRecords), [filteredRecords]);
   const maxTypeCount = Math.max(1, ...Object.values(stats.byType));
 
@@ -412,7 +451,9 @@ function AdminDashboard({ token, dashboard, onRefresh, onLogout }) {
             <select value={selectedGroup} onChange={(event) => setSelectedGroup(event.target.value)}>
               <option value="all">전체 집단</option>
               {groups.map((group) => (
-                <option key={group.id} value={group.id}>{group.name}</option>
+                <option key={group.id} value={group.id}>
+                  {group.name}{group.excludeFromOverall ? " (전체 제외)" : ""}
+                </option>
               ))}
             </select>
           </div>

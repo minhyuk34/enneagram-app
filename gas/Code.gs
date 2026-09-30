@@ -50,7 +50,7 @@ var RECORD_HEADER = [
 
 var GROUP_HEADER = [
   "집단ID", "집단명", "검사비밀번호해시", "활성", "생성일", "수정일",
-  "검사비밀번호", "실시일",
+  "검사비밀번호", "실시일", "결과사본수신메일", "전체통계제외",
 ];
 
 function doGet() {
@@ -211,7 +211,7 @@ function handleSubmit_(data) {
     ]);
 
     try {
-      sendResultEmail_(name, email, access.group.name, result);
+      sendResultEmail_(name, email, access.group.name, result, access.group.copyEmail);
     } catch (mailError) {
       Logger.log("email send failed: " + mailError);
     }
@@ -407,6 +407,18 @@ function handleAdminUpdateGroup_(data) {
     if (Object.prototype.hasOwnProperty.call(data, "testDate")) {
       sheet.getRange(row, 8).setValue(cleanText_(data.testDate || ""));
     }
+
+    if (Object.prototype.hasOwnProperty.call(data, "copyEmail")) {
+      var copyEmail = normalizeEmail_(data.copyEmail);
+      if (copyEmail && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(copyEmail)) {
+        return jsonOutput({ ok: false, error: "invalid_copy_email" });
+      }
+      sheet.getRange(row, 9).setValue(copyEmail);
+    }
+
+    if (Object.prototype.hasOwnProperty.call(data, "excludeFromOverall")) {
+      sheet.getRange(row, 10).setValue(Boolean(data.excludeFromOverall));
+    }
     sheet.getRange(row, 6).setValue(new Date());
 
     return jsonOutput({ ok: true, group: adminGroup_(findGroupById_(groupId, true)) });
@@ -524,6 +536,8 @@ function listGroups_(includeInactive) {
       updatedAt: row[5],
       accessCode: row[6] ? String(row[6]) : "",
       testDate: formatDateCell_(row[7]),
+      copyEmail: normalizeEmail_(row[8]),
+      excludeFromOverall: toBoolean_(row[9]),
       rowNumber: i + 1,
     };
     if (includeInactive || group.active) groups.push(group);
@@ -569,6 +583,8 @@ function adminGroup_(group) {
     createdAt: group.createdAt,
     updatedAt: group.updatedAt,
     testDate: group.testDate || "",
+    copyEmail: group.copyEmail || "",
+    excludeFromOverall: Boolean(group.excludeFromOverall),
   };
 }
 
@@ -746,7 +762,7 @@ function sendGroupPasswordEmail_(email, groupName, accessCode) {
   });
 }
 
-function sendResultEmail_(name, email, groupName, result) {
+function sendResultEmail_(name, email, groupName, result, copyEmail) {
   var highlightTypes = getResultHighlightTypes_(result);
   var subjectResult = highlightTypes.length > 1
     ? "공동 1위 " + highlightTypes.join("·") + "번"
@@ -766,6 +782,8 @@ function sendResultEmail_(name, email, groupName, result) {
     htmlBody: buildResultEmailHtml_(name, groupName, result, Boolean(chartBlob)),
     name: "에니어그램 검사",
   };
+  // 집단에 지정된 사본 수신자는 참가자에게 노출되지 않도록 숨은참조로 보낸다.
+  if (copyEmail && copyEmail !== email) message.bcc = copyEmail;
   if (chartBlob) {
     message.inlineImages = { scoreChart: chartBlob };
   }

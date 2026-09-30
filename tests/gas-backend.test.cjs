@@ -20,12 +20,24 @@ class MockSheet {
 
   setFrozenRows() {}
 
+  getLastRow() {
+    return this.rows.length;
+  }
+
   getDataRange() {
     return { getValues: () => this.rows.map((row) => [...row]) };
   }
 
   getRange(row, column, rowCount = 1, columnCount = 1) {
     return {
+      getValues: () => {
+        const out = [];
+        for (let y = 0; y < rowCount; y += 1) {
+          const source = this.rows[row - 1 + y] || [];
+          out.push(Array.from({ length: columnCount }, (_, x) => source[column - 1 + x] ?? ""));
+        }
+        return out;
+      },
       setValues: (values) => {
         for (let y = 0; y < rowCount; y += 1) {
           while (this.rows.length < row + y) this.rows.push([]);

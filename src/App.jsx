@@ -38,6 +38,26 @@ const ERROR_MESSAGES = {
   email_send_failed: "이메일 발송에 실패했습니다. 잠시 후 다시 시도해 주세요.",
 };
 
+// 집단 목록은 지난 방문 값을 먼저 보여주고 뒤에서 새로 받아 온다(서버 응답이 느려도 화면이 바로 뜬다).
+const GROUPS_CACHE_KEY = "enneagram.groups.v1";
+
+function readCachedGroups() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(GROUPS_CACHE_KEY) || "[]");
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeCachedGroups(groups) {
+  try {
+    localStorage.setItem(GROUPS_CACHE_KEY, JSON.stringify(groups));
+  } catch {
+    // 저장소를 쓸 수 없는 환경에서는 캐시 없이 동작한다.
+  }
+}
+
 function getErrorMessage(error, fallback) {
   const code = error?.code || error?.message || error;
   return ERROR_MESSAGES[code] || fallback;
@@ -663,8 +683,8 @@ function App() {
   const [screen, setScreen] = useState("login");
   const [answers, setAnswers] = useState({});
   const [userInfo, setUserInfo] = useState(null);
-  const [groups, setGroups] = useState([]);
-  const [groupsLoading, setGroupsLoading] = useState(true);
+  const [groups, setGroups] = useState(readCachedGroups);
+  const [groupsLoading, setGroupsLoading] = useState(() => readCachedGroups().length === 0);
   const [groupsError, setGroupsError] = useState("");
   const [loginError, setLoginError] = useState("");
   const [records, setRecords] = useState([]);
@@ -679,12 +699,13 @@ function App() {
   const [typeChoiceSaving, setTypeChoiceSaving] = useState(false);
   const [typeChoiceError, setTypeChoiceError] = useState("");
 
-  async function refreshGroups() {
-    setGroupsLoading(true);
+  async function refreshGroups({ silent = false } = {}) {
+    if (!silent) setGroupsLoading(true);
     setGroupsError("");
     try {
       const res = await listGroups();
       setGroups(res.groups || []);
+      writeCachedGroups(res.groups || []);
     } catch (error) {
       setGroupsError(
         getErrorMessage(error, "집단 목록을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.")
@@ -695,7 +716,7 @@ function App() {
   }
 
   useEffect(() => {
-    refreshGroups();
+    refreshGroups({ silent: true });
   }, []);
 
   async function handleLogin(info) {
@@ -856,7 +877,7 @@ function App() {
             groupsLoading={groupsLoading}
             groupsError={groupsError}
             loginError={loginError}
-            onReloadGroups={refreshGroups}
+            onReloadGroups={() => refreshGroups()}
           />
         )}
         {screen === "history" && userInfo && (

@@ -15,6 +15,9 @@ var MAX_RECORDS_PER_EMAIL = 5;
 var ADMIN_SESSION_SECONDS = 21600; // 6시간
 var PARTICIPANT_SESSION_SECONDS = 1800; // 유형 선택용 30분
 
+var GROUPS_CACHE_KEY = "public_groups_v1";
+var GROUPS_CACHE_SECONDS = 300;
+
 var ADMIN_PASSWORD_PROPERTY = "ADMIN_PASSWORD";
 var ADMIN_PASSWORD_HASH_PROPERTY = "ADMIN_PASSWORD_HASH";
 var ADMIN_PASSWORD_VERSION_PROPERTY = "ADMIN_PASSWORD_VERSION";
@@ -89,7 +92,11 @@ function doPost(e) {
   }
 }
 
+var sheetMemo_ = {};
+
+// 요청마다 헤더를 다시 쓰면 느리므로, 실행 중 한 번만 확인하고 달라졌을 때만 쓴다.
 function getOrCreateSheet_(name, header) {
+  if (sheetMemo_[name]) return sheetMemo_[name];
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var sheet = ss.getSheetByName(name);
   if (!sheet) sheet = ss.insertSheet(name);
@@ -97,13 +104,25 @@ function getOrCreateSheet_(name, header) {
   if (sheet.getMaxColumns() < header.length) {
     sheet.insertColumnsAfter(sheet.getMaxColumns(), header.length - sheet.getMaxColumns());
   }
-  sheet.getRange(1, 1, 1, header.length).setValues([header]);
-  sheet.setFrozenRows(1);
+  var current = sheet.getRange(1, 1, 1, header.length).getValues()[0];
+  var same = true;
+  for (var i = 0; i < header.length; i++) {
+    if (String(current[i]) !== header[i]) { same = false; break; }
+  }
+  if (!same) {
+    sheet.getRange(1, 1, 1, header.length).setValues([header]);
+    sheet.setFrozenRows(1);
+  }
+  sheetMemo_[name] = sheet;
   return sheet;
 }
 
 function getRecordSheet_() {
   return getOrCreateSheet_(RECORD_SHEET_NAME, RECORD_HEADER);
+}
+
+function clearGroupsCache_() {
+  try { CacheService.getScriptCache().remove(GROUPS_CACHE_KEY); } catch (err) {}
 }
 
 function getGroupSheet_() {
@@ -112,7 +131,14 @@ function getGroupSheet_() {
 
 function handleListGroups_() {
   // 종료된 집단도 과거 결과 조회를 위해 표시하되, 새 검사는 서버에서 차단한다.
+  // 참가자 화면이 열릴 때마다 호출되므로 짧게 캐시하고, 집단이 바뀌면 바로 비운다.
+  var cache = CacheService.getScriptCache();
+  var cached = null;
+  try { cached = cache.get(GROUPS_CACHE_KEY); } catch (err) { cached = null; }
+  if (cached) return jsonOutput({ ok: true, groups: safeJsonParse_(cached, []) });
+
   var groups = listGroups_(true).map(publicGroup_);
+  try { cache.put(GROUPS_CACHE_KEY, JSON.stringify(groups), GROUPS_CACHE_SECONDS); } catch (err) {}
   return jsonOutput({ ok: true, groups: groups });
 }
 
@@ -357,6 +383,7 @@ function handleAdminCreateGroup_(data) {
     // 검사비밀번호(평문)는 "비밀번호 찾기" 이메일 발송을 위해 별도 열에 보관한다.
     // 검사비밀번호해시는 기존처럼 검사 응시 시 검증용으로만 쓰인다.
     getGroupSheet_().appendRow([id, name, hashSecret_(accessCode), true, now, now, accessCode, testDate]);
+    clearGroupsCache_();
     return jsonOutput({
       ok: true,
       group: { id: id, name: name, active: true, createdAt: now, updatedAt: now, testDate: testDate },
@@ -420,6 +447,7 @@ function handleAdminUpdateGroup_(data) {
       sheet.getRange(row, 10).setValue(Boolean(data.excludeFromOverall));
     }
     sheet.getRange(row, 6).setValue(new Date());
+    clearGroupsCache_();
 
     return jsonOutput({ ok: true, group: adminGroup_(findGroupById_(groupId, true)) });
   } finally {
@@ -616,12 +644,30 @@ function formatDateCell_(value) {
   return String(value);
 }
 
-function listRecordsByEmail_(email) {
-  var records = listAllRecords_();
+function findRecordRowsByEmail_(sheet, email) {
   var target = normalizeEmail_(email);
-  return records.filter(function (record) {
-    return normalizeEmail_(record.email) === target;
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 2) return [];
+  var emails = sheet.getRange(2, 6, lastRow - 1, 1).getValues();
+  var rows = [];
+  for (var i = 0; i < emails.length; i++) {
+    if (normalizeEmail_(emails[i][0]) === target) rows.push(i + 2);
+  }
+  return rows;
+}
+
+// 전체 시트를 읽지 않고 이메일 열만 훑은 뒤 해당 행만 가져온다.
+function listRecordsByEmail_(email) {
+  var sheet = getRecordSheet_();
+  var rows = findRecordRowsByEmail_(sheet, email);
+  var records = rows.map(function (rowNumber) {
+    var row = sheet.getRange(rowNumber, 1, 1, RECORD_HEADER.length).getValues()[0];
+    return rowToRecord_(row, rowNumber);
   });
+  records.sort(function (a, b) {
+    return new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime();
+  });
+  return records;
 }
 
 function listAllRecords_() {
@@ -713,12 +759,7 @@ function buildTypeResult_(scores, requestedType, source) {
 }
 
 function enforceMaxRecords_(sheet, email, maxCount) {
-  var emailLower = normalizeEmail_(email);
-  var values = sheet.getDataRange().getValues();
-  var matchingRows = [];
-  for (var i = 1; i < values.length; i++) {
-    if (normalizeEmail_(values[i][5]) === emailLower) matchingRows.push(i + 1);
-  }
+  var matchingRows = findRecordRowsByEmail_(sheet, email);
   while (matchingRows.length > maxCount) {
     var oldestRow = matchingRows.shift();
     sheet.deleteRow(oldestRow);

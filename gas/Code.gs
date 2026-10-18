@@ -32,6 +32,20 @@ var ENNEAGRAM_TYPE_NAMES = {
   6: "충성가", 7: "열정가", 8: "도전자", 9: "평화주의자",
 };
 
+// 유형별 해석 블로그 포스팅. 결과 메일 하단에 "에니어그램 N번 해석하기"로 들어간다.
+// 프런트엔드(src/data/blogLinks.js)와 같은 목록이므로 주소를 바꿀 때는 두 곳을 함께 고친다.
+var ENNEAGRAM_BLOG_LINKS = {
+  1: "https://blog.naver.com/jwing34/224441885409",
+  2: "https://blog.naver.com/jwing34/224437151969",
+  3: "https://blog.naver.com/jwing34/224438087470",
+  4: "https://blog.naver.com/jwing34/224438615272",
+  5: "https://blog.naver.com/jwing34/224439323488",
+  6: "https://blog.naver.com/jwing34/224439338053",
+  7: "https://blog.naver.com/jwing34/224439904020",
+  8: "https://blog.naver.com/jwing34/224439914612",
+  9: "https://blog.naver.com/jwing34/224439923212",
+};
+
 var TYPE_ORDER = [2, 3, 4, 5, 6, 7, 8, 9, 1];
 var CENTER_MAP = {
   1: "장(본능) 중심", 2: "가슴(감정) 중심", 3: "가슴(감정) 중심",
@@ -942,6 +956,8 @@ function buildResultEmailHtml_(name, groupName, result, hasChart) {
     html += buildWingsGuideTableHtml_(wingDetails, growthTable, highlightTypes, result.wingLabel);
   }
 
+  html += buildBlogLinksHtml_(highlightTypes);
+
   html += '<p style="margin:34px 0 0;padding-top:18px;border-top:1px solid #d5cbc3;color:#776b63;font-size:11px;line-height:1.7;">이 결과는 자기이해와 성장을 위한 참고 자료입니다. 현재의 상황과 경험에 따라 표현 방식은 달라질 수 있습니다.</p>';
   html += '</td></tr></table></div>';
   return html;
@@ -1007,7 +1023,30 @@ function buildResultEmailText_(name, groupName, result) {
       lines.push("", "[" + wings[wingIndex].code + " · " + wings[wingIndex].nickname + (wings[wingIndex].code === result.wingLabel ? " · 나의 날개" : "") + "]", joinListText_(wings[wingIndex].points));
     }
   }
+  lines.push("", "[에니어그램 해석하기]");
+  for (var linkType = 1; linkType <= 9; linkType++) {
+    lines.push("에니어그램 " + linkType + "번 해석하기" + (highlightTypes.indexOf(linkType) !== -1 ? " (나의 유형)" : "") + ": " + ENNEAGRAM_BLOG_LINKS[linkType]);
+  }
   return lines.join("\n");
+}
+
+// 결과 메일 하단의 "에니어그램 N번 해석하기" 링크 표. 링크는 서버 상수만 사용한다.
+function buildBlogLinksHtml_(highlightTypes) {
+  var html = emailSectionTitle_("INTERPRETATION", "에니어그램 해석하기");
+  html += '<p style="margin:0 0 10px;color:#615751;font-size:12px;line-height:1.8;">유형별 해석 글을 블로그에서 더 자세히 읽어볼 수 있습니다.</p>';
+  html += '<table role="presentation" width="100%" border="1" bordercolor="#d5cbc3" cellspacing="0" cellpadding="0" style="width:100%;border-collapse:collapse;">';
+  for (var type = 1; type <= 9; type++) {
+    var highlighted = highlightTypes.indexOf(type) !== -1;
+    var typeLabel = '<strong>' + type + '번</strong> · ' + escapeHtml_(ENNEAGRAM_TYPE_NAMES[type]) +
+      (highlighted ? '<span style="display:inline-block;margin-left:7px;padding:2px 7px;background:#8f1f26;color:#ffffff;font-size:9px;font-weight:700;">나의 유형</span>' : "");
+    var link = '<a href="' + escapeHtml_(ENNEAGRAM_BLOG_LINKS[type]) + '" target="_blank" style="color:#8f1f26;font-weight:700;text-decoration:underline;">에니어그램 ' + type + '번 해석하기 →</a>';
+    html += '<tr>';
+    html += emailTableCell_(typeLabel, highlighted, true, "45%", "");
+    html += emailTableCell_(link, highlighted, false, "55%", "");
+    html += '</tr>';
+  }
+  html += '</table>';
+  return html;
 }
 
 function buildScoreTableHtml_(result) {

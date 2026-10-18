@@ -13,6 +13,7 @@ import {
 } from "./api/gas";
 import ScoreChart from "./components/ScoreChart";
 import EnneagramGuide from "./components/EnneagramGuide";
+import BlogLinks from "./components/BlogLinks";
 import "./App.css";
 
 const PAGE_SIZE = 9;
@@ -660,6 +661,8 @@ function ResultScreen({
         </p>
 
         <EnneagramGuide highlightTypes={highlightTypes} />
+
+        <BlogLinks highlightTypes={highlightTypes} />
       </div>
 
       <div className="result-actions no-print">
